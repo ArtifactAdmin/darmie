@@ -1,0 +1,402 @@
+/**
+ * app.js — Main application entry point.
+ * Wires together the WebSocket, WebRTC, FileTransfer, and UI modules.
+ */
+
+import { MSG }          from './protocol.js';
+import { WSManager }    from './ws.js';
+import { WebRTCManager} from './webrtc.js';
+import { FileTransfer } from './filetransfer.js';
+import { UI }           from './ui.js';
+
+// Application state 
+
+const state = {
+    userId:      null,
+    username:    null,
+    rooms:       [],       // RoomInfo[]
+    currentRoom: null,     // { id, name } | null
+    roomUsers:   [],       // UserInfo[]
+    hasAudio:    false,
+    audioMuted:  false,
+    hasVideo:    false,
+    hasScreen:   false,
+};
+
+// Module instances 
+const ws           = new WSManager();
+const webrtc       = new WebRTCManager(ws);
+const fileTransfer = new FileTransfer(webrtc);
+
+// WebRTC callbacks 
+
+webrtc.onRemoteStream = (userId, stream) => {
+    const user = state.roomUsers.find(u => u.id === userId);
+    UI.addVideoTile(userId, user?.username ?? userId, stream);
+};
+
+webrtc.onRemoteStreamRemoved = (userId) => UI.removeVideoTile(userId);
+
+webrtc.onConnectionState = (userId, connState) => {
+    if (connState === 'connected') {
+        const user = state.roomUsers.find(u => u.id === userId);
+        if (user) UI.toast(`Connected to ${user.username}`, 'success');
+    }
+};
+
+// File transfer callbacks 
+
+fileTransfer.onFileReceived = (fromUserId, name, url, size) => {
+    const user = state.roomUsers.find(u => u.id === fromUserId);
+    UI.addFileMessage({ fromUsername: user?.username ?? fromUserId, filename: name, url, size });
+};
+
+fileTransfer.onProgress = (_userId, fraction) => {
+    if (fraction >= 1) UI.toast('File sent ✓', 'success');
+};
+
+// WebSocket message handlers
+
+ws.on(MSG.AUTH_SUCCESS, (p) => {
+    state.userId   = p.user_id;
+    state.username = p.username;
+    webrtc.init(p.user_id);
+    UI.showApp(p.username);
+    ws.send(MSG.LIST_ROOMS);
+});
+
+ws.on(MSG.AUTH_ERROR, (p) => UI.setAuthError(p.message));
+
+ws.on(MSG.ROOM_LIST, (p) => {
+    state.rooms = p.rooms;
+    UI.updateRoomList(p.rooms, state.currentRoom?.id, _joinRoom);
+});
+
+ws.on(MSG.ROOM_CREATED, (p) => {
+    state.rooms.push(p.room);
+    UI.updateRoomList(state.rooms, state.currentRoom?.id, _joinRoom);
+    _joinRoom(p.room.id);
+});
+
+ws.on(MSG.ROOM_JOINED, (p) => {
+    state.currentRoom = { id: p.room.id, name: p.room.name };
+    state.roomUsers   = [...p.users];
+
+    // Sync the server-authoritative user count into our local room list.
+    const joinedEntry = state.rooms.find(r => r.id === p.room.id);
+    if (joinedEntry) joinedEntry.user_count = p.room.user_count;
+
+    UI.showRoom(p.room.name);
+    UI.updateUserList(p.users);
+    UI.updateRoomList(state.rooms, p.room.id, _joinRoom);
+
+    // Replay message history so rejoining users see past messages.
+    if (p.history) {
+        for (const msg of p.history) {
+            UI.addMessage({
+                fromUsername: msg.from_username,
+                content:      msg.content,
+                timestamp:    msg.timestamp,
+                isSelf:       msg.from_user_id === state.userId,
+            });
+        }
+    }
+    // Existing peers will send offers to us via onnegotiationneeded — we wait.
+});
+
+ws.on(MSG.ROOM_LEFT, () => {
+    _resetRoom();
+});
+
+ws.on(MSG.USER_JOINED, (p) => {
+    const { user } = p;
+    if (!state.roomUsers.find(u => u.id === user.id)) {
+        state.roomUsers.push(user);
+    }
+    UI.addUser(user);
+    UI.toast(`${user.username} joined`, 'info');
+    // As an existing member we initiate the peer connection.
+    webrtc.initiatePeer(user.id);
+
+    // Keep sidebar badge in sync.
+    const roomEntry = state.rooms.find(r => r.id === p.room_id);
+    if (roomEntry) {
+        roomEntry.user_count++;
+        UI.updateRoomList(state.rooms, state.currentRoom?.id, _joinRoom);
+    }
+});
+
+ws.on(MSG.USER_LEFT, (p) => {
+    state.roomUsers = state.roomUsers.filter(u => u.id !== p.user_id);
+    UI.removeUser(p.user_id);
+    webrtc.closePeer(p.user_id);
+
+    // Keep sidebar badge in sync.
+    const roomEntry = state.rooms.find(r => r.id === p.room_id);
+    if (roomEntry) {
+        roomEntry.user_count = Math.max(0, roomEntry.user_count - 1);
+        UI.updateRoomList(state.rooms, state.currentRoom?.id, _joinRoom);
+    }
+});
+
+ws.on(MSG.TEXT_MESSAGE, (p) => {
+    UI.addMessage({
+        fromUsername: p.from_username,
+        content:      p.content,
+        timestamp:    p.timestamp,
+        isSelf:       p.from_user_id === state.userId,
+    });
+});
+
+ws.on(MSG.OFFER, (p) => {
+    webrtc.handleOffer(p.from_user_id, p.sdp).catch(console.error);
+});
+
+ws.on(MSG.ANSWER, (p) => {
+    webrtc.handleAnswer(p.from_user_id, p.sdp).catch(console.error);
+});
+
+ws.on(MSG.ICE_CANDIDATE, (p) => {
+    webrtc.handleICECandidate(p.from_user_id, p.candidate).catch(console.error);
+});
+
+ws.on(MSG.VIDEO_STOPPED, (p) => {
+    UI.removeVideoTile(p.user_id);
+});
+
+ws.on(MSG.ERROR, (p) => UI.toast(p.message, 'error'));
+
+ws.on(MSG.DISCONNECTED, () => {
+    if (state.userId) {
+        UI.toast('Connection lost — reconnecting…', 'error');
+        setTimeout(_connectWS, 3000);
+    }
+});
+
+// Action helpers
+
+function _joinRoom(roomId) {
+    if (roomId === state.currentRoom?.id) return;
+    ws.send(MSG.JOIN_ROOM, { room_id: roomId });
+}
+
+function _resetRoom() {
+    webrtc.closeAll();
+    _resetMediaState();
+    state.currentRoom = null;
+    state.roomUsers   = [];
+    UI.hideRoom();
+    UI.updateRoomList(state.rooms, null, _joinRoom);
+}
+
+function _resetMediaState() {
+    state.hasAudio   = false;
+    state.audioMuted = false;
+    state.hasVideo   = false;
+    state.hasScreen  = false;
+    UI.setMediaBtn('btn-audio',  false);
+    UI.setMediaBtn('btn-video',  false);
+    UI.setMediaBtn('btn-screen', false);
+}
+
+// Event: auth tabs
+
+document.querySelectorAll('.auth-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+        document.querySelectorAll('.auth-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        document.querySelectorAll('.auth-form').forEach(f => f.classList.add('hidden'));
+        document.getElementById(tab.dataset.form).classList.remove('hidden');
+        UI.clearAuthError();
+    });
+});
+
+// Event: login
+
+document.getElementById('login-btn').addEventListener('click', _doLogin);
+document.getElementById('login-password').addEventListener('keydown', e => {
+    if (e.key === 'Enter') _doLogin();
+});
+
+function _doLogin() {
+    const username = document.getElementById('login-username').value.trim();
+    const password = document.getElementById('login-password').value;
+    if (!username || !password) return;
+    UI.clearAuthError();
+    ws.send(MSG.LOGIN, { username, password });
+}
+
+// Event: register
+
+document.getElementById('register-btn').addEventListener('click', _doRegister);
+document.getElementById('register-password').addEventListener('keydown', e => {
+    if (e.key === 'Enter') _doRegister();
+});
+
+function _doRegister() {
+    const username = document.getElementById('register-username').value.trim();
+    const password = document.getElementById('register-password').value;
+    if (!username || !password) return;
+    UI.clearAuthError();
+    ws.send(MSG.REGISTER, { username, password });
+}
+
+// Event: logout
+
+document.getElementById('logout-btn').addEventListener('click', () => {
+    _resetRoom();
+    state.userId   = null;
+    state.username = null;
+    state.rooms    = [];
+    ws.close();
+    UI.showAuth();
+    setTimeout(_connectWS, 100);
+});
+
+// Event: create room 
+document.getElementById('create-room-btn').addEventListener('click', () => {
+    const modal = document.getElementById('create-room-modal');
+    modal.classList.remove('hidden');
+    document.getElementById('room-name-input').value = '';
+    document.getElementById('room-name-input').focus();
+});
+
+document.getElementById('cancel-room-btn').addEventListener('click', () => {
+    document.getElementById('create-room-modal').classList.add('hidden');
+});
+
+document.getElementById('confirm-room-btn').addEventListener('click', _doCreateRoom);
+document.getElementById('room-name-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter')  _doCreateRoom();
+    if (e.key === 'Escape') document.getElementById('create-room-modal').classList.add('hidden');
+});
+
+document.getElementById('create-room-modal').addEventListener('click', e => {
+    if (e.target === e.currentTarget) e.target.classList.add('hidden');
+});
+
+function _doCreateRoom() {
+    const name = document.getElementById('room-name-input').value.trim();
+    if (!name) return;
+    ws.send(MSG.CREATE_ROOM, { name });
+    document.getElementById('create-room-modal').classList.add('hidden');
+}
+
+// Event: leave room
+
+document.getElementById('btn-leave').addEventListener('click', () => {
+    if (!state.currentRoom) return;
+    ws.send(MSG.LEAVE_ROOM, { room_id: state.currentRoom.id });
+    _resetRoom();
+});
+
+// Event: audio toggle
+
+document.getElementById('btn-audio').addEventListener('click', async () => {
+    if (!state.hasAudio) {
+        try {
+            await webrtc.startAudio();
+            state.hasAudio   = true;
+            state.audioMuted = false;
+            UI.setMediaBtn('btn-audio', true);
+            document.getElementById('btn-audio').title = 'Mute microphone';
+        } catch (err) {
+            UI.toast(err.message, 'error');
+        }
+    } else {
+        state.audioMuted = webrtc.toggleAudioMute();
+        UI.setMediaBtn('btn-audio', !state.audioMuted);
+        document.getElementById('btn-audio').title = state.audioMuted ? 'Unmute microphone' : 'Mute microphone';
+    }
+});
+
+// Event: video toggle
+
+document.getElementById('btn-video').addEventListener('click', async () => {
+    if (!state.hasVideo) {
+        try {
+            const stream = await webrtc.startVideo();
+            state.hasVideo = true;
+            UI.setMediaBtn('btn-video', true);
+            UI.addVideoTile('local', state.username, stream);
+        } catch (err) {
+            UI.toast(err.message, 'error');
+        }
+    } else {
+        webrtc.stopVideo();
+        state.hasVideo = false;
+        UI.setMediaBtn('btn-video', false);
+        UI.removeVideoTile('local');
+    }
+});
+
+// Event: screen share toggle
+
+document.getElementById('btn-screen').addEventListener('click', async () => {
+    if (!state.hasScreen) {
+        try {
+            const stream = await webrtc.startScreenShare();
+            state.hasScreen = true;
+            UI.setMediaBtn('btn-screen', true);
+            UI.addVideoTile('local-screen', state.username + ' (screen)', stream);
+            // Handle user clicking browser's built-in "Stop Sharing" button
+            stream.getVideoTracks()[0].addEventListener('ended', () => {
+                webrtc.stopScreenShare();
+                state.hasScreen = false;
+                UI.setMediaBtn('btn-screen', false);
+                UI.removeVideoTile('local-screen');
+            }, { once: true });
+        } catch (err) {
+            if (err.name !== 'NotAllowedError') UI.toast(err.message, 'error');
+        }
+    } else {
+        webrtc.stopScreenShare();
+        state.hasScreen = false;
+        UI.setMediaBtn('btn-screen', false);
+        UI.removeVideoTile('local-screen');
+    }
+});
+
+// Event: send text message
+
+document.getElementById('send-btn').addEventListener('click', _sendMessage);
+document.getElementById('msg-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); _sendMessage(); }
+});
+
+function _sendMessage() {
+    const input   = document.getElementById('msg-input');
+    const content = input.value.trim();
+    if (!content || !state.currentRoom) return;
+    ws.send(MSG.TEXT_MESSAGE, { room_id: state.currentRoom.id, content });
+    input.value = '';
+}
+
+// Event: file send
+
+document.getElementById('file-input').addEventListener('change', e => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+
+    const peers = state.roomUsers.filter(u => u.id !== state.userId);
+    if (!peers.length) { UI.toast('No peers to send the file to', 'error'); return; }
+
+    for (const u of peers) fileTransfer.sendFile(u.id, file);
+    UI.toast(`Sending "${file.name}"…`, 'info');
+});
+
+// Bootstrap 
+
+async function _connectWS() {
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const url   = `${proto}//${location.host}/ws`;
+    try {
+        await ws.connect(url);
+    } catch {
+        UI.toast('Cannot reach server — retrying in 5s…', 'error');
+        setTimeout(_connectWS, 5000);
+    }
+}
+
+_connectWS();
