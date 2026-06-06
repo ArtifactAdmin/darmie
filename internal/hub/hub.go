@@ -2,9 +2,15 @@
 package hub
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
+	"io"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -18,11 +24,12 @@ import (
 )
 
 const (
-	maxRoomSize = 12   // cap for mesh-topology rooms
-	maxRooms    = 100  // prevent unbounded room growth
-	maxMsgLen   = 2000 // max text chat content length
-	maxNameLen  = 50   // max room name length
-	maxHistory  = 200  // max messages kept per room
+	maxRoomSize    = 12          // cap for mesh-topology rooms
+	maxRooms       = 100         // prevent unbounded room growth
+	maxMsgLen      = 2000        // max text chat content length
+	maxNameLen     = 50          // max room name length
+	maxHistory     = 200         // max messages kept per room
+	maxUploadBytes = 100 << 20   // 100 MB per file
 )
 
 var upgrader = websocket.Upgrader{
@@ -84,15 +91,21 @@ type Hub struct {
 	rooms   map[string]*room   // roomID → room
 	store   *store.Store
 	msgs    *store.MessageStore
+
+	uploadTokensMu sync.RWMutex
+	uploadTokens   map[string]string // token → userID
+	uploadsDir     string
 }
 
 // New creates a Hub backed by the given user store and message store.
-func New(s *store.Store, ms *store.MessageStore) *Hub {
+func New(s *store.Store, ms *store.MessageStore, uploadsDir string) *Hub {
 	return &Hub{
-		clients: make(map[string]*Client),
-		rooms:   make(map[string]*room),
-		store:   s,
-		msgs:    ms,
+		clients:      make(map[string]*Client),
+		rooms:        make(map[string]*room),
+		store:        s,
+		msgs:         ms,
+		uploadTokens: make(map[string]string),
+		uploadsDir:   uploadsDir,
 	}
 }
 
@@ -170,10 +183,11 @@ func (h *Hub) handleRegister(c *Client, raw json.RawMessage) {
 		return
 	}
 
-	h.attachClient(c, u.ID, u.Username)
+	token := h.attachClient(c, u.ID, u.Username)
 	c.sendMsg(mustMsg(protocol.TypeAuthSuccess, protocol.AuthSuccessPayload{
-		UserID:   u.ID,
-		Username: u.Username,
+		UserID:      u.ID,
+		Username:    u.Username,
+		UploadToken: token,
 	}))
 }
 
@@ -207,20 +221,47 @@ func (h *Hub) handleLogin(c *Client, raw json.RawMessage) {
 		go old.close() // kick the old session outside the lock to avoid deadlock
 	}
 
+	token := h.generateUploadToken(c, u.ID)
 	c.sendMsg(mustMsg(protocol.TypeAuthSuccess, protocol.AuthSuccessPayload{
-		UserID:   u.ID,
-		Username: u.Username,
+		UserID:      u.ID,
+		Username:    u.Username,
+		UploadToken: token,
 	}))
 }
 
-// attachClient registers an authenticated client with the hub.
-func (h *Hub) attachClient(c *Client, userID, username string) {
+// attachClient registers an authenticated client with the hub and returns a
+// fresh upload token for use in HTTP file uploads.
+func (h *Hub) attachClient(c *Client, userID, username string) string {
 	c.userID = userID
 	c.username = username
 
 	h.mu.Lock()
 	h.clients[userID] = c
 	h.mu.Unlock()
+
+	return h.generateUploadToken(c, userID)
+}
+
+// generateUploadToken creates a cryptographically-random token, stores it, and
+// records it on the client so it can be revoked on disconnect.
+func (h *Hub) generateUploadToken(c *Client, userID string) string {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		log.Printf("generateUploadToken: %v", err)
+		return ""
+	}
+	token := base64.RawURLEncoding.EncodeToString(b)
+
+	// Revoke any previous token for this client.
+	h.uploadTokensMu.Lock()
+	if c.uploadToken != "" {
+		delete(h.uploadTokens, c.uploadToken)
+	}
+	c.uploadToken = token
+	h.uploadTokens[token] = userID
+	h.uploadTokensMu.Unlock()
+
+	return token
 }
 
 // ─── Room handlers ────────────────────────────────────────────────────────────
@@ -449,7 +490,7 @@ func (h *Hub) handleTextMessage(c *Client, raw json.RawMessage) {
 		Timestamp:    time.Now().UnixMilli(),
 	}
 
-	h.msgs.Save(r.name, entry)
+	h.msgs.SaveText(r.name, entry)
 
 	data := mustBytes(protocol.TypeTextMessage, entry)
 	r.broadcast(data, "") // include sender so they see their own message
@@ -569,6 +610,13 @@ func (h *Hub) handleDisconnect(c *Client) {
 		return // unauthenticated client, nothing to clean up
 	}
 
+	// Revoke the upload token so in-flight requests fail gracefully.
+	if c.uploadToken != "" {
+		h.uploadTokensMu.Lock()
+		delete(h.uploadTokens, c.uploadToken)
+		h.uploadTokensMu.Unlock()
+	}
+
 	h.mu.Lock()
 	// Only remove if this is still the registered client for this user ID.
 	if h.clients[c.userID] == c {
@@ -599,6 +647,166 @@ func (h *Hub) handleDisconnect(c *Client) {
 	log.Printf("client disconnected: %s (%s)", c.username, c.userID)
 }
 
+// ─── File upload / download ───────────────────────────────────────────────────
+
+// HandleUpload accepts a multipart POST, saves the file to disk, records
+// metadata in the database, and broadcasts a file_message to the room.
+//
+//	POST /upload?token=<uploadToken>&room_id=<roomID>
+//	Body: multipart/form-data, field name "file"
+func (h *Hub) HandleUpload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Authenticate via upload token.
+	token := r.URL.Query().Get("token")
+	roomID := r.URL.Query().Get("room_id")
+
+	h.uploadTokensMu.RLock()
+	userID, ok := h.uploadTokens[token]
+	h.uploadTokensMu.RUnlock()
+	if !ok || token == "" {
+		jsonErr(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	h.mu.RLock()
+	c, clientOk := h.clients[userID]
+	rm, roomOk := h.rooms[roomID]
+	h.mu.RUnlock()
+	if !clientOk {
+		jsonErr(w, "not connected", http.StatusUnauthorized)
+		return
+	}
+	if !roomOk {
+		jsonErr(w, "room not found", http.StatusBadRequest)
+		return
+	}
+
+	rm.mu.RLock()
+	_, member := rm.clients[userID]
+	rm.mu.RUnlock()
+	if !member {
+		jsonErr(w, "you are not in that room", http.StatusForbidden)
+		return
+	}
+
+	// Cap the body size before parsing to avoid reading a huge payload first.
+	r.Body = http.MaxBytesReader(w, r.Body, maxUploadBytes+4096)
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		jsonErr(w, "file too large or malformed form (max 100 MB)", http.StatusBadRequest)
+		return
+	}
+
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		jsonErr(w, "missing 'file' field", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+
+	// Sanitize the original filename: keep only the base, replace control chars.
+	origName := sanitizeFilename(filepath.Base(header.Filename))
+	if origName == "" || origName == "." {
+		origName = "file"
+	}
+
+	mimeType := header.Header.Get("Content-Type")
+	if mimeType == "" {
+		mimeType = "application/octet-stream"
+	}
+
+	// Write to disk.
+	fileID := uuid.New().String()
+	diskPath := filepath.Join(h.uploadsDir, fileID)
+	out, err := os.Create(diskPath)
+	if err != nil {
+		log.Printf("upload: create %s: %v", diskPath, err)
+		jsonErr(w, "server error", http.StatusInternalServerError)
+		return
+	}
+
+	size, copyErr := io.Copy(out, file)
+	out.Close()
+	if copyErr != nil {
+		log.Printf("upload: write %s: %v", diskPath, copyErr)
+		os.Remove(diskPath)
+		jsonErr(w, "server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Persist metadata.
+	ts := time.Now().UnixMilli()
+	rec := store.FileRecord{
+		ID:           fileID,
+		RoomName:     rm.name,
+		FromUserID:   userID,
+		FromUsername: c.username,
+		Filename:     origName,
+		MimeType:     mimeType,
+		Size:         size,
+		Timestamp:    ts,
+	}
+	if err := h.msgs.SaveFile(rec); err != nil {
+		log.Printf("upload: save metadata: %v", err)
+		os.Remove(diskPath)
+		jsonErr(w, "server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Broadcast to the whole room (including the uploader).
+	fileURL := "/files/" + fileID
+	payload := protocol.FileMessagePayload{
+		RoomID:       roomID,
+		FromUserID:   userID,
+		FromUsername: c.username,
+		FileID:       fileID,
+		Filename:     origName,
+		MimeType:     mimeType,
+		Size:         size,
+		URL:          fileURL,
+		Timestamp:    ts,
+	}
+	rm.broadcast(mustBytes(protocol.TypeFileMessage, payload), "")
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"url": fileURL})
+}
+
+// HandleFileDownload serves an uploaded file by its UUID.
+//
+//	GET /files/<fileID>
+func (h *Hub) HandleFileDownload(w http.ResponseWriter, r *http.Request) {
+	fileID := strings.TrimPrefix(r.URL.Path, "/files/")
+	// Reject empty, multi-segment, or path-traversal attempts.
+	if fileID == "" || strings.ContainsAny(fileID, "/\\..") {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+
+	rec, err := h.msgs.GetFile(fileID)
+	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+
+	diskPath := filepath.Join(h.uploadsDir, fileID)
+	f, err := os.Open(diskPath)
+	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	defer f.Close()
+
+	w.Header().Set("Content-Type", rec.MimeType)
+	w.Header().Set("Content-Disposition",
+		`attachment; filename="`+sanitizeFilename(rec.Filename)+`"`)
+	w.Header().Set("Content-Length", strconv.FormatInt(rec.Size, 10))
+	io.Copy(w, f) //nolint:errcheck
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 // mustMsg creates a Message and panics on error (only called with types we control).
@@ -618,4 +826,22 @@ func mustBytes(t protocol.MessageType, payload interface{}) []byte {
 		panic(err)
 	}
 	return b
+}
+
+// jsonErr writes a JSON {"error":"..."} response.
+func jsonErr(w http.ResponseWriter, msg string, code int) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	json.NewEncoder(w).Encode(map[string]string{"error": msg}) //nolint:errcheck
+}
+
+// sanitizeFilename strips characters that are unsafe in HTTP headers or file paths.
+func sanitizeFilename(name string) string {
+	return strings.Map(func(r rune) rune {
+		switch r {
+		case '"', '\\', '\r', '\n', '/', '\x00':
+			return '_'
+		}
+		return r
+	}, name)
 }

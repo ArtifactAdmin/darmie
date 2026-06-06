@@ -144,10 +144,10 @@ export const UI = {
         messages.scrollTop = messages.scrollHeight;
     },
 
-    addFileMessage({ fromUsername, filename, url, size }) {
+    addFileMessage({ fromUsername, filename, url, size, isSelf = false }) {
         const messages = document.getElementById('messages');
         const div = document.createElement('div');
-        div.className = 'message file-msg';
+        div.className = 'message file-msg' + (isSelf ? ' self' : '');
 
         const av = _makeAvatar(fromUsername);
 

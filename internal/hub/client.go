@@ -26,8 +26,9 @@ type Client struct {
 	send chan []byte
 
 	// Set after authentication.
-	userID   string
-	username string
+	userID      string
+	username    string
+	uploadToken string // revoked on disconnect
 
 	// Rooms this client is currently in (protected by roomsMu).
 	rooms   map[string]struct{}

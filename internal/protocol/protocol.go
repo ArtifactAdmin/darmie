@@ -22,7 +22,8 @@ const (
 	TypeVideoStopped MessageType = "video_stopped" // (relayed to room)
 
 	// Server
-	TypeAuthSuccess MessageType = "auth_success"
+	TypeFileMessage  MessageType = "file_message"
+	TypeAuthSuccess  MessageType = "auth_success"
 	TypeAuthError   MessageType = "auth_error"
 	TypeRoomList    MessageType = "room_list"
 	TypeRoomJoined  MessageType = "room_joined"
@@ -111,8 +112,9 @@ type RoomInfo struct {
 }
 
 type AuthSuccessPayload struct {
-	UserID   string `json:"user_id"`
-	Username string `json:"username"`
+	UserID      string `json:"user_id"`
+	Username    string `json:"username"`
+	UploadToken string `json:"upload_token"`
 }
 
 type AuthErrorPayload struct {
@@ -123,10 +125,40 @@ type RoomListPayload struct {
 	Rooms []RoomInfo `json:"rooms"`
 }
 
+// HistoryEntry is a unified record for the room history replay, covering both
+// text messages (Kind == "text") and uploaded files (Kind == "file").
+type HistoryEntry struct {
+	Kind         string `json:"kind"` // "text" or "file"
+	FromUserID   string `json:"from_user_id"`
+	FromUsername string `json:"from_username"`
+	Timestamp    int64  `json:"timestamp"`
+	// text-only
+	Content string `json:"content,omitempty"`
+	// file-only
+	FileID   string `json:"file_id,omitempty"`
+	Filename string `json:"filename,omitempty"`
+	MimeType string `json:"mime_type,omitempty"`
+	Size     int64  `json:"size,omitempty"`
+	URL      string `json:"url,omitempty"`
+}
+
+// FileMessagePayload is broadcast to all room members when a file is uploaded.
+type FileMessagePayload struct {
+	RoomID       string `json:"room_id"`
+	FromUserID   string `json:"from_user_id"`
+	FromUsername string `json:"from_username"`
+	FileID       string `json:"file_id"`
+	Filename     string `json:"filename"`
+	MimeType     string `json:"mime_type"`
+	Size         int64  `json:"size"`
+	URL          string `json:"url"`
+	Timestamp    int64  `json:"timestamp"`
+}
+
 type RoomJoinedPayload struct {
-	Room    RoomInfo              `json:"room"`
-	Users   []UserInfo            `json:"users"`
-	History []IncomingTextPayload `json:"history"`
+	Room    RoomInfo       `json:"room"`
+	Users   []UserInfo     `json:"users"`
+	History []HistoryEntry `json:"history"`
 }
 
 type RoomCreatedPayload struct {

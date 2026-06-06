@@ -22,6 +22,7 @@ export const MSG = Object.freeze({
     ROOM_CREATED:  'room_created',
     USER_JOINED:   'user_joined',
     USER_LEFT:     'user_left',
+    FILE_MESSAGE:  'file_message',
     ERROR:         'error',
 
     // Internal pseudo-event

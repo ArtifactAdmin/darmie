@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"fmt"
 	"log"
 
 	_ "modernc.org/sqlite"
@@ -12,6 +13,18 @@ import (
 // MessageStore is a SQLite-backed message history store keyed by room name.
 type MessageStore struct {
 	db *sql.DB
+}
+
+// FileRecord holds the metadata for an uploaded file.
+type FileRecord struct {
+	ID           string
+	RoomName     string
+	FromUserID   string
+	FromUsername string
+	Filename     string
+	MimeType     string
+	Size         int64
+	Timestamp    int64
 }
 
 const maxMessagesPerRoom = 200 // rows kept per room; matches hub.maxHistory
@@ -50,15 +63,35 @@ func NewMessageStore(path string) (*MessageStore, error) {
 		return nil, err
 	}
 
+	if _, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS files (
+			id            TEXT    PRIMARY KEY,
+			room_name     TEXT    NOT NULL,
+			from_user_id  TEXT    NOT NULL,
+			from_username TEXT    NOT NULL,
+			filename      TEXT    NOT NULL,
+			mime_type     TEXT    NOT NULL,
+			size          INTEGER NOT NULL,
+			timestamp     INTEGER NOT NULL
+		)`); err != nil {
+		db.Close()
+		return nil, err
+	}
+
+	if _, err = db.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_files_room_ts
+		ON files (room_name, timestamp)`); err != nil {
+		db.Close()
+		return nil, err
+	}
+
 	return &MessageStore{db: db}, nil
 }
 
-// Save persists a single text message associated with roomName and prunes old
+// SaveText persists a single text message associated with roomName and prunes old
 // rows so each room never exceeds maxMessagesPerRoom entries.
-// Both operations run in a single transaction so the row limit is enforced
-// atomically even under concurrent saves.
-// Errors are logged but not returned a failed save must never crash the send path.
-func (ms *MessageStore) Save(roomName string, msg protocol.IncomingTextPayload) {
+// Errors are logged but not returned — a failed save must never crash the send path.
+func (ms *MessageStore) SaveText(roomName string, msg protocol.IncomingTextPayload) {
 	tx, err := ms.db.Begin()
 	if err != nil {
 		log.Printf("messages: begin tx: %v", err)
@@ -76,8 +109,7 @@ func (ms *MessageStore) Save(roomName string, msg protocol.IncomingTextPayload) 
 		return
 	}
 
-	// Prune rows beyond the per-room limit. Ordering by (timestamp DESC, id DESC)
-	// is deterministic even when two messages share the same millisecond timestamp.
+	// Prune rows beyond the per-room limit.
 	_, err = tx.Exec(`
 		DELETE FROM messages
 		WHERE  room_name = ?
@@ -97,32 +129,82 @@ func (ms *MessageStore) Save(roomName string, msg protocol.IncomingTextPayload) 
 	}
 }
 
-// Load returns the most recent limit messages for roomName in chronological order.
-func (ms *MessageStore) Load(roomName string, limit int) ([]protocol.IncomingTextPayload, error) {
+// SaveFile persists file upload metadata. Returns an error so the caller can
+// roll back the on-disk file on failure.
+func (ms *MessageStore) SaveFile(rec FileRecord) error {
+	_, err := ms.db.Exec(
+		`INSERT INTO files (id, room_name, from_user_id, from_username, filename, mime_type, size, timestamp)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		rec.ID, rec.RoomName, rec.FromUserID, rec.FromUsername,
+		rec.Filename, rec.MimeType, rec.Size, rec.Timestamp,
+	)
+	return err
+}
+
+// GetFile returns the metadata for a single file by its UUID.
+func (ms *MessageStore) GetFile(fileID string) (*FileRecord, error) {
+	var rec FileRecord
+	err := ms.db.QueryRow(
+		`SELECT id, room_name, from_user_id, from_username, filename, mime_type, size, timestamp
+		 FROM files WHERE id = ?`, fileID,
+	).Scan(&rec.ID, &rec.RoomName, &rec.FromUserID, &rec.FromUsername,
+		&rec.Filename, &rec.MimeType, &rec.Size, &rec.Timestamp)
+	if err != nil {
+		return nil, fmt.Errorf("file not found: %w", err)
+	}
+	return &rec, nil
+}
+
+// Load returns the most recent limit history entries (text + file) for roomName
+// in chronological order.
+func (ms *MessageStore) Load(roomName string, limit int) ([]protocol.HistoryEntry, error) {
 	rows, err := ms.db.Query(`
-		SELECT from_user_id, from_username, content, timestamp
+		SELECT kind, from_user_id, from_username, content, file_id, filename, mime_type, size, timestamp
 		FROM (
-			SELECT from_user_id, from_username, content, timestamp
-			FROM   messages
-			WHERE  room_name = ?
+			SELECT 'text'      AS kind,
+			       from_user_id, from_username,
+			       content,
+			       ''          AS file_id,
+			       ''          AS filename,
+			       ''          AS mime_type,
+			       0           AS size,
+			       timestamp
+			FROM   messages WHERE room_name = ?
+			UNION ALL
+			SELECT 'file',
+			       from_user_id, from_username,
+			       '',
+			       id,
+			       filename,
+			       mime_type,
+			       size,
+			       timestamp
+			FROM   files WHERE room_name = ?
 			ORDER  BY timestamp DESC
 			LIMIT  ?
 		)
 		ORDER BY timestamp ASC`,
-		roomName, limit,
+		roomName, roomName, limit,
 	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var out []protocol.IncomingTextPayload
+	var out []protocol.HistoryEntry
 	for rows.Next() {
-		var m protocol.IncomingTextPayload
-		if err := rows.Scan(&m.FromUserID, &m.FromUsername, &m.Content, &m.Timestamp); err != nil {
+		var e protocol.HistoryEntry
+		if err := rows.Scan(
+			&e.Kind, &e.FromUserID, &e.FromUsername,
+			&e.Content, &e.FileID, &e.Filename, &e.MimeType, &e.Size,
+			&e.Timestamp,
+		); err != nil {
 			return nil, err
 		}
-		out = append(out, m)
+		if e.Kind == "file" {
+			e.URL = "/files/" + e.FileID
+		}
+		out = append(out, e)
 	}
 	return out, rows.Err()
 }

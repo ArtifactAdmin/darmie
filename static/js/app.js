@@ -3,17 +3,18 @@
  * Wires together the WebSocket, WebRTC, FileTransfer, and UI modules.
  */
 
-import { MSG }          from './protocol.js';
-import { WSManager }    from './ws.js';
-import { WebRTCManager} from './webrtc.js';
-import { FileTransfer } from './filetransfer.js';
-import { UI }           from './ui.js';
+import { MSG }          from './protocol.js?v=2';
+import { WSManager }    from './ws.js?v=2';
+import { WebRTCManager} from './webrtc.js?v=2';
+import { FileTransfer } from './filetransfer.js?v=2';
+import { UI }           from './ui.js?v=2';
 
 // Application state 
 
 const state = {
     userId:      null,
     username:    null,
+    uploadToken: null,  // per-session token for HTTP file uploads
     rooms:       [],       // RoomInfo[]
     currentRoom: null,     // { id, name } | null
     roomUsers:   [],       // UserInfo[]
@@ -58,8 +59,9 @@ fileTransfer.onProgress = (_userId, fraction) => {
 // WebSocket message handlers
 
 ws.on(MSG.AUTH_SUCCESS, (p) => {
-    state.userId   = p.user_id;
-    state.username = p.username;
+    state.userId      = p.user_id;
+    state.username    = p.username;
+    state.uploadToken = p.upload_token;
     webrtc.init(p.user_id);
     UI.showApp(p.username);
     ws.send(MSG.LIST_ROOMS);
@@ -92,13 +94,23 @@ ws.on(MSG.ROOM_JOINED, (p) => {
 
     // Replay message history so rejoining users see past messages.
     if (p.history) {
-        for (const msg of p.history) {
-            UI.addMessage({
-                fromUsername: msg.from_username,
-                content:      msg.content,
-                timestamp:    msg.timestamp,
-                isSelf:       msg.from_user_id === state.userId,
-            });
+        for (const entry of p.history) {
+            if (entry.kind === 'file') {
+                UI.addFileMessage({
+                    fromUsername: entry.from_username,
+                    filename:     entry.filename,
+                    url:          entry.url,
+                    size:         entry.size,
+                    isSelf:       entry.from_user_id === state.userId,
+                });
+            } else {
+                UI.addMessage({
+                    fromUsername: entry.from_username,
+                    content:      entry.content,
+                    timestamp:    entry.timestamp,
+                    isSelf:       entry.from_user_id === state.userId,
+                });
+            }
         }
     }
     // Existing peers will send offers to us via onnegotiationneeded — we wait.
@@ -144,6 +156,16 @@ ws.on(MSG.TEXT_MESSAGE, (p) => {
         fromUsername: p.from_username,
         content:      p.content,
         timestamp:    p.timestamp,
+        isSelf:       p.from_user_id === state.userId,
+    });
+});
+
+ws.on(MSG.FILE_MESSAGE, (p) => {
+    UI.addFileMessage({
+        fromUsername: p.from_username,
+        filename:     p.filename,
+        url:          p.url,
+        size:         p.size,
         isSelf:       p.from_user_id === state.userId,
     });
 });
@@ -245,9 +267,10 @@ function _doRegister() {
 
 document.getElementById('logout-btn').addEventListener('click', () => {
     _resetRoom();
-    state.userId   = null;
-    state.username = null;
-    state.rooms    = [];
+    state.userId      = null;
+    state.username    = null;
+    state.uploadToken = null;
+    state.rooms       = [];
     ws.close();
     UI.showAuth();
     setTimeout(_connectWS, 100);
@@ -372,18 +395,29 @@ function _sendMessage() {
     input.value = '';
 }
 
-// Event: file send
+// Event: file send — upload to server via HTTP POST
 
-document.getElementById('file-input').addEventListener('change', e => {
+document.getElementById('file-input').addEventListener('change', async e => {
     const file = e.target.files[0];
     e.target.value = '';
-    if (!file) return;
+    if (!file || !state.currentRoom) return;
 
-    const peers = state.roomUsers.filter(u => u.id !== state.userId);
-    if (!peers.length) { UI.toast('No peers to send the file to', 'error'); return; }
+    const url = `/upload?token=${encodeURIComponent(state.uploadToken)}&room_id=${encodeURIComponent(state.currentRoom.id)}`;
+    const body = new FormData();
+    body.append('file', file);
 
-    for (const u of peers) fileTransfer.sendFile(u.id, file);
-    UI.toast(`Sending "${file.name}"…`, 'info');
+    UI.toast(`Uploading "${file.name}"…`, 'info');
+    try {
+        const res = await fetch(url, { method: 'POST', body });
+        if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            UI.toast(data.error || 'Upload failed', 'error');
+        }
+        // On success the server broadcasts file_message to the room,
+        // so the file appears in chat automatically — no extra UI call needed.
+    } catch (err) {
+        UI.toast('Upload error: ' + err.message, 'error');
+    }
 });
 
 // Bootstrap 
