@@ -181,3 +181,4 @@ Then open **http://localhost:8080** in two or more browser tabs.
 - **No TLS built-in** — run behind a TLS-terminating reverse proxy (nginx, Caddy) in production. HTTPS is required for browser media APIs.
 - **No rate limiting** — add per-IP rate limits for auth endpoints in production.
 - **Mesh scales to ~12 users** — larger rooms need an SFU (e.g. mediasoup, Pion).
+- **Screen audio depends on the browser/source** — `getDisplayMedia()` only returns audio when the selected surface supports it; tab/window sharing is more reliable than full-screen capture.

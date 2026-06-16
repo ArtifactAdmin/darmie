@@ -212,10 +212,11 @@ function _resetRoom() {
 }
 
 function _resetMediaState() {
-    state.hasAudio   = false;
-    state.audioMuted = false;
-    state.hasVideo   = false;
-    state.hasScreen  = false;
+    state.hasAudio          = false;
+    state.audioMuted        = false;
+    state.hasVideo          = false;
+    state.hasScreen         = false;
+    _screenAutoStartedAudio = false;
     UI.setMediaBtn('btn-audio',  false);
     UI.setMediaBtn('btn-video',  false);
     UI.setMediaBtn('btn-screen', false);
@@ -355,6 +356,24 @@ document.getElementById('btn-video').addEventListener('click', async () => {
 
 // Event: screen share toggle
 
+// Tracks whether the microphone was auto-started to accompany a screen share,
+// so it can be automatically stopped when the screen share ends.
+let _screenAutoStartedAudio = false;
+
+async function _stopScreenShare() {
+    webrtc.stopScreenShare();
+    state.hasScreen = false;
+    UI.setMediaBtn('btn-screen', false);
+    UI.removeVideoTile('local-screen');
+    if (_screenAutoStartedAudio) {
+        webrtc.stopAudio();
+        state.hasAudio          = false;
+        state.audioMuted        = false;
+        _screenAutoStartedAudio = false;
+        UI.setMediaBtn('btn-audio', false);
+    }
+}
+
 document.getElementById('btn-screen').addEventListener('click', async () => {
     if (!state.hasScreen) {
         try {
@@ -362,21 +381,32 @@ document.getElementById('btn-screen').addEventListener('click', async () => {
             state.hasScreen = true;
             UI.setMediaBtn('btn-screen', true);
             UI.addVideoTile('local-screen', state.username + ' (screen)', stream);
+
+            // Display audio is only available when the user checks "Share audio"
+            // in the browser dialog, and some browsers/surfaces never provide it.
+            // Fall back to microphone audio so there is always an audio track
+            // accompanying the screen share.
+            if (!stream.getAudioTracks().length && !state.hasAudio) {
+                try {
+                    await webrtc.startAudio();
+                    state.hasAudio          = true;
+                    state.audioMuted        = false;
+                    _screenAutoStartedAudio = true;
+                    UI.setMediaBtn('btn-audio', true);
+                } catch {
+                    // Mic unavailable — screen share continues without audio
+                }
+            }
+
             // Handle user clicking browser's built-in "Stop Sharing" button
             stream.getVideoTracks()[0].addEventListener('ended', () => {
-                webrtc.stopScreenShare();
-                state.hasScreen = false;
-                UI.setMediaBtn('btn-screen', false);
-                UI.removeVideoTile('local-screen');
+                _stopScreenShare();
             }, { once: true });
         } catch (err) {
             if (err.name !== 'NotAllowedError') UI.toast(err.message, 'error');
         }
     } else {
-        webrtc.stopScreenShare();
-        state.hasScreen = false;
-        UI.setMediaBtn('btn-screen', false);
-        UI.removeVideoTile('local-screen');
+        _stopScreenShare();
     }
 });
 

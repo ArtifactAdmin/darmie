@@ -92,14 +92,10 @@ func NewMessageStore(path string) (*MessageStore, error) {
 // rows so each room never exceeds maxMessagesPerRoom entries.
 // Errors are logged but not returned — a failed save must never crash the send path.
 func (ms *MessageStore) SaveText(roomName string, msg protocol.IncomingTextPayload) {
-	tx, err := ms.db.Begin()
-	if err != nil {
-		log.Printf("messages: begin tx: %v", err)
-		return
-	}
-	defer tx.Rollback() //nolint:errcheck
-
-	_, err = tx.Exec(
+	// Insert the message first, independently of the prune step that follows.
+	// Keeping them separate ensures that a prune failure never rolls back the
+	// insert and silently drops a delivered message.
+	_, err := ms.db.Exec(
 		`INSERT INTO messages (room_name, from_user_id, from_username, content, timestamp)
 		 VALUES (?, ?, ?, ?, ?)`,
 		roomName, msg.FromUserID, msg.FromUsername, msg.Content, msg.Timestamp,
@@ -109,8 +105,8 @@ func (ms *MessageStore) SaveText(roomName string, msg protocol.IncomingTextPaylo
 		return
 	}
 
-	// Prune rows beyond the per-room limit.
-	_, err = tx.Exec(`
+	// Prune rows beyond the per-room limit (non-critical maintenance).
+	if _, err = ms.db.Exec(`
 		DELETE FROM messages
 		WHERE  room_name = ?
 		AND    id NOT IN (
@@ -118,14 +114,8 @@ func (ms *MessageStore) SaveText(roomName string, msg protocol.IncomingTextPaylo
 			WHERE  room_name = ?
 			ORDER  BY timestamp DESC, id DESC
 			LIMIT  ?
-		)`, roomName, roomName, maxMessagesPerRoom)
-	if err != nil {
+		)`, roomName, roomName, maxMessagesPerRoom); err != nil {
 		log.Printf("messages: prune error: %v", err)
-		return
-	}
-
-	if err = tx.Commit(); err != nil {
-		log.Printf("messages: commit: %v", err)
 	}
 }
 

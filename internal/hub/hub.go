@@ -24,12 +24,12 @@ import (
 )
 
 const (
-	maxRoomSize    = 12          // cap for mesh-topology rooms
-	maxRooms       = 100         // prevent unbounded room growth
-	maxMsgLen      = 2000        // max text chat content length
-	maxNameLen     = 50          // max room name length
-	maxHistory     = 200         // max messages kept per room
-	maxUploadBytes = 100 << 20   // 100 MB per file
+	maxRoomSize    = 12        // cap for mesh-topology rooms
+	maxRooms       = 100       // prevent unbounded room growth
+	maxMsgLen      = 2000      // max text chat content length
+	maxNameLen     = 50        // max room name length
+	maxHistory     = 200       // max messages kept per room
+	maxUploadBytes = 100 << 20 // 100 MB per file
 )
 
 var upgrader = websocket.Upgrader{

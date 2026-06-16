@@ -191,8 +191,14 @@ export class WebRTCManager {
     // 
 
     async startScreenShare() {
-        this._screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
-        for (const track of this._screenStream.getVideoTracks()) {
+        this._screenStream = await navigator.mediaDevices.getDisplayMedia({
+            video: true,
+            audio: {
+                suppressLocalAudioPlayback: false,
+            },
+            systemAudio: 'include',
+        });
+        for (const track of this._screenStream.getTracks()) {
             for (const peer of Object.values(this._peers)) {
                 const sender = peer.pc.addTrack(track, this._screenStream);
                 peer.senders.push(sender);

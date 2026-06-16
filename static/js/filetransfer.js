@@ -47,10 +47,7 @@ export class FileTransfer {
         }
 
         const label   = FILE_CHANNEL_PREFIX + crypto.randomUUID();
-        const channel = peer.pc.createDataChannel(label, {
-            ordered:         true,
-            maxRetransmits:  30,
-        });
+        const channel = peer.pc.createDataChannel(label, { ordered: true });
 
         channel.binaryType = 'arraybuffer';
         channel.onopen  = () => this._sendFile(channel, file, userId);
