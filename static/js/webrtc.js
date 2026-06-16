@@ -17,7 +17,7 @@ export class WebRTCManager {
         this._ws          = ws;
         this._localUserId = null;
 
-        /** @type {Record<string, {pc: RTCPeerConnection, makingOffer: boolean, ignoreOffer: boolean, senders: RTCRtpSender[]}>} */
+        /** @type {Record<string, {pc: RTCPeerConnection, makingOffer: boolean, ignoreOffer: boolean, senders: RTCRtpSender[], remoteStream: MediaStream}>} */
         this._peers    = {};
         /** @type {Record<string, RTCIceCandidateInit[]>} */
         this._pending  = {};
@@ -193,9 +193,7 @@ export class WebRTCManager {
     async startScreenShare() {
         this._screenStream = await navigator.mediaDevices.getDisplayMedia({
             video: true,
-            audio: {
-                suppressLocalAudioPlayback: false,
-            },
+            audio: true,
             systemAudio: 'include',
         });
         for (const track of this._screenStream.getTracks()) {
@@ -226,7 +224,7 @@ export class WebRTCManager {
 
     _createPeer(userId) {
         const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
-        const peer = { pc, makingOffer: false, ignoreOffer: false, senders: [] };
+        const peer = { pc, makingOffer: false, ignoreOffer: false, senders: [], remoteStream: new MediaStream() };
         this._peers[userId] = peer;
 
         pc.onicecandidate = ({ candidate }) => {
@@ -238,9 +236,13 @@ export class WebRTCManager {
             }
         };
 
-        pc.ontrack = ({ track, streams }) => {
-            if (this.onRemoteStream && streams[0]) {
-                this.onRemoteStream(userId, streams[0]);
+        // Combine all incoming tracks into one MediaStream so that mic audio and
+        // screen-share video/audio are always played together in the same tile.
+        pc.ontrack = ({ track }) => {
+            peer.remoteStream.addTrack(track);
+            track.onended = () => peer.remoteStream.removeTrack(track);
+            if (this.onRemoteStream) {
+                this.onRemoteStream(userId, peer.remoteStream);
             }
         };
 
