@@ -239,7 +239,9 @@ export const UI = {
             tile.append(video, label, fsBtn);
             grid.appendChild(tile);
         }
-        tile.querySelector('video').srcObject = stream;
+        const video = tile.querySelector('video');
+        video.srcObject = stream;
+        _playMedia(video);
     },
 
     removeVideoTile(userId) {
@@ -273,9 +275,26 @@ export const UI = {
     },
 };
 
-// 
+//
 // Private helpers
-// 
+//
+
+/**
+ * Start playback of a remote media element. Browsers block autoplay of media
+ * with sound until the page has a user gesture, so a stream that arrives while
+ * the viewer is idle (e.g. a screen share with audio) would otherwise stay
+ * paused and silent. Try to play immediately; if blocked, retry on the next
+ * user interaction anywhere on the page.
+ */
+function _playMedia(video) {
+    video.play().catch(() => {
+        const resume = () => {
+            video.play().then(() => document.removeEventListener('pointerdown', resume))
+                         .catch(() => {});
+        };
+        document.addEventListener('pointerdown', resume);
+    });
+}
 
 /** Revoke all blob URLs tracked within a container before it is cleared. */
 function _revokeBlobUrls(container) {

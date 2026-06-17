@@ -3,11 +3,11 @@
  * Wires together the WebSocket, WebRTC, FileTransfer, and UI modules.
  */
 
-import { MSG }          from './protocol.js?v=2';
-import { WSManager }    from './ws.js?v=2';
-import { WebRTCManager} from './webrtc.js?v=2';
-import { FileTransfer } from './filetransfer.js?v=2';
-import { UI }           from './ui.js?v=2';
+import { MSG }          from './protocol.js?v=3';
+import { WSManager }    from './ws.js?v=3';
+import { WebRTCManager} from './webrtc.js?v=3';
+import { FileTransfer } from './filetransfer.js?v=3';
+import { UI }           from './ui.js?v=3';
 
 // Application state 
 
