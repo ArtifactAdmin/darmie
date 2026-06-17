@@ -236,7 +236,34 @@ export const UI = {
                 fsBtn.title       = isFs ? 'Exit fullscreen' : 'Fullscreen';
             });
 
-            tile.append(video, label, fsBtn);
+            // Per-user volume slider (remote tiles only — you never hear yourself).
+            const extras = [];
+            if (!userId.startsWith('local')) {
+                const volCtrl = document.createElement('div');
+                volCtrl.className = 'video-vol-ctrl';
+
+                const icon = document.createElement('span');
+                icon.className = 'video-vol-icon';
+                icon.textContent = '🔊';
+
+                const vol = document.createElement('input');
+                vol.type      = 'range';
+                vol.min       = '0';
+                vol.max       = '1';
+                vol.step      = '0.05';
+                vol.value     = '1';
+                vol.className = 'video-vol';
+                vol.title     = 'Volume';
+                vol.addEventListener('input', () => {
+                    video.volume = Number(vol.value);
+                    icon.textContent = vol.value === '0' ? '🔇' : '🔊';
+                });
+
+                volCtrl.append(icon, vol);
+                extras.push(volCtrl);
+            }
+
+            tile.append(video, label, fsBtn, ...extras);
             grid.appendChild(tile);
         }
         tile.querySelector('video').srcObject = stream;
