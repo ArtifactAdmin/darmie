@@ -284,9 +284,26 @@ export const UI = {
     },
 };
 
-// 
+//
 // Private helpers
-// 
+//
+
+/**
+ * Start playback of a remote media element. Browsers block autoplay of media
+ * with sound until the page has a user gesture, so a stream that arrives while
+ * the viewer is idle (e.g. a screen share with audio) would otherwise stay
+ * paused and silent. Try to play immediately; if blocked, retry on the next
+ * user interaction anywhere on the page.
+ */
+function _playMedia(video) {
+    video.play().catch(() => {
+        const resume = () => {
+            video.play().then(() => document.removeEventListener('pointerdown', resume))
+                         .catch(() => {});
+        };
+        document.addEventListener('pointerdown', resume);
+    });
+}
 
 /**
  * Toggle a tile into audio-only mode (avatar shown, video hidden) when its
