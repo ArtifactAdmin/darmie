@@ -401,6 +401,18 @@ input  { font: inherit; color: inherit; }
 
 .mirrored { transform: scaleX(-1); }
 
+/* Audio-only participant: hide the empty video frame and centre an avatar. */
+.tile-avatar {
+    position: absolute;
+    inset: 0;
+    margin: auto;
+    box-shadow: 0 0 0 4px rgba(255, 255, 255, .08);
+}
+.video-tile .tile-avatar       { display: none; } /* beats .avatar's display:flex */
+.video-tile.audio-only         { background: var(--bg2); }
+.video-tile.audio-only video   { display: none; }
+.video-tile.audio-only .tile-avatar { display: flex; }
+
 .video-fs-btn {
     position: absolute;
     top: 8px;

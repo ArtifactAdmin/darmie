@@ -213,6 +213,11 @@ export const UI = {
                 video.classList.add('mirrored');
             }
 
+            // Shown in place of the black video frame while the stream carries
+            // audio only (e.g. a voice-only participant sharing just a mic).
+            const avatar = _makeAvatar(userId.startsWith('local') ? 'You' : username, 72);
+            avatar.classList.add('tile-avatar');
+
             const label = document.createElement('div');
             label.className = 'video-label';
             label.textContent = userId.startsWith('local') ? 'You' : username;
@@ -236,12 +241,16 @@ export const UI = {
                 fsBtn.title       = isFs ? 'Exit fullscreen' : 'Fullscreen';
             });
 
-            tile.append(video, label, fsBtn);
+            // The <video> element fires `resize` whenever a video track starts
+            // or stops producing frames, so the tile flips between live video
+            // and the audio-only avatar on its own — no extra signalling needed.
+            video.addEventListener('resize', () => _syncTileMode(tile, stream));
+
+            tile.append(video, avatar, label, fsBtn);
             grid.appendChild(tile);
         }
-        const video = tile.querySelector('video');
-        video.srcObject = stream;
-        _playMedia(video);
+        tile.querySelector('video').srcObject = stream;
+        _syncTileMode(tile, stream);
     },
 
     removeVideoTile(userId) {
@@ -294,6 +303,15 @@ function _playMedia(video) {
         };
         document.addEventListener('pointerdown', resume);
     });
+}
+
+/**
+ * Toggle a tile into audio-only mode (avatar shown, video hidden) when its
+ * stream has no live video track. Recomputed reactively on every track change.
+ */
+function _syncTileMode(tile, stream) {
+    const hasVideo = stream.getVideoTracks().some(t => t.readyState === 'live');
+    tile.classList.toggle('audio-only', !hasVideo);
 }
 
 /** Revoke all blob URLs tracked within a container before it is cleared. */
