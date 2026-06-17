@@ -83,6 +83,7 @@ export const UI = {
         const grid = document.getElementById('video-grid');
         grid.innerHTML = '';
         grid.classList.add('hidden');
+        grid.classList.remove('has-focus');
         messages.innerHTML = '';
     },
 
@@ -213,6 +214,11 @@ export const UI = {
                 video.classList.add('mirrored');
             }
 
+            // Shown in place of the black video frame while the stream carries
+            // audio only (e.g. a voice-only participant sharing just a mic).
+            const avatar = _makeAvatar(userId.startsWith('local') ? 'You' : username, 72);
+            avatar.classList.add('tile-avatar');
+
             const label = document.createElement('div');
             label.className = 'video-label';
             label.textContent = userId.startsWith('local') ? 'You' : username;
@@ -236,42 +242,24 @@ export const UI = {
                 fsBtn.title       = isFs ? 'Exit fullscreen' : 'Fullscreen';
             });
 
-            // Per-user volume slider (remote tiles only — you never hear yourself).
-            const extras = [];
-            if (!userId.startsWith('local')) {
-                const volCtrl = document.createElement('div');
-                volCtrl.className = 'video-vol-ctrl';
+            // The <video> element fires `resize` whenever a video track starts
+            // or stops producing frames, so the tile flips between live video
+            // and the audio-only avatar on its own — no extra signalling needed.
+            video.addEventListener('resize', () => _syncTileMode(tile, stream));
 
-                const icon = document.createElement('span');
-                icon.className = 'video-vol-icon';
-                icon.textContent = '🔊';
-
-                const vol = document.createElement('input');
-                vol.type      = 'range';
-                vol.min       = '0';
-                vol.max       = '1';
-                vol.step      = '0.05';
-                vol.value     = '1';
-                vol.className = 'video-vol';
-                vol.title     = 'Volume';
-                vol.addEventListener('input', () => {
-                    video.volume = Number(vol.value);
-                    icon.textContent = vol.value === '0' ? '🔇' : '🔊';
-                });
-
-                volCtrl.append(icon, vol);
-                extras.push(volCtrl);
-            }
-
-            tile.append(video, label, fsBtn, ...extras);
+            tile.append(video, avatar, label, fsBtn);
             grid.appendChild(tile);
         }
         tile.querySelector('video').srcObject = stream;
+        _syncTileMode(tile, stream);
     },
 
     removeVideoTile(userId) {
-        document.getElementById('vtile-' + userId)?.remove();
+        const tile = document.getElementById('vtile-' + userId);
+        const wasFocused = tile?.classList.contains('focused');
+        tile?.remove();
         const grid = document.getElementById('video-grid');
+        if (wasFocused) grid.classList.remove('has-focus');
         if (grid.children.length === 0) grid.classList.add('hidden');
     },
 
@@ -300,9 +288,48 @@ export const UI = {
     },
 };
 
-// 
+//
 // Private helpers
-// 
+//
+
+/**
+ * Start playback of a remote media element. Browsers block autoplay of media
+ * with sound until the page has a user gesture, so a stream that arrives while
+ * the viewer is idle (e.g. a screen share with audio) would otherwise stay
+ * paused and silent. Try to play immediately; if blocked, retry on the next
+ * user interaction anywhere on the page.
+ */
+function _playMedia(video) {
+    video.play().catch(() => {
+        const resume = () => {
+            video.play().then(() => document.removeEventListener('pointerdown', resume))
+                         .catch(() => {});
+        };
+        document.addEventListener('pointerdown', resume);
+    });
+}
+
+/**
+ * Toggle a tile into audio-only mode (avatar shown, video hidden) when its
+ * stream has no live video track. Recomputed reactively on every track change.
+ */
+function _syncTileMode(tile, stream) {
+    const hasVideo = stream.getVideoTracks().some(t => t.readyState === 'live');
+    tile.classList.toggle('audio-only', !hasVideo);
+}
+
+/**
+ * Toggle in-app focus (spotlight) for a tile: the focused stream fills the
+ * stage while the rest collapse to a thumbnail strip. Focusing a different
+ * tile moves the spotlight; clicking the focused tile clears it.
+ */
+function _focusTile(tile) {
+    const grid = document.getElementById('video-grid');
+    const focus = !tile.classList.contains('focused');
+    grid.querySelectorAll('.video-tile.focused').forEach(t => t.classList.remove('focused'));
+    tile.classList.toggle('focused', focus);
+    grid.classList.toggle('has-focus', focus);
+}
 
 /** Revoke all blob URLs tracked within a container before it is cleared. */
 function _revokeBlobUrls(container) {
