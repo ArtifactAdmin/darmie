@@ -23,6 +23,19 @@ const AUDIO_CONSTRAINTS = {
     autoGainControl:  true,
 };
 
+/**
+ * Fetch a worklet script and hand back a blob URL with an explicit JS MIME
+ * type. AudioWorklet.addModule rejects ("Unable to load a worklet's module")
+ * if the server returns the script with a non-JS content type or via a proxy/
+ * SPA fallback; loading from a same-origin blob sidesteps that.
+ */
+async function _workletURL(src) {
+    const res = await fetch(src);
+    if (!res.ok) throw new Error(`worklet fetch ${res.status} for ${src}`);
+    const code = await res.text();
+    return URL.createObjectURL(new Blob([code], { type: 'text/javascript' }));
+}
+
 export class WebRTCManager {
     /**
      * @param {import('./ws.js').WSManager} ws
@@ -200,7 +213,7 @@ export class WebRTCManager {
         if (this._rnnoise || !this._micTrack) return;
 
         const ctx = new AudioContext({ sampleRate: RNNOISE_FRAME });
-        await ctx.audioWorklet.addModule(`${NS_DIR}/rnnoise-worklet.js?v=5`);
+        await ctx.audioWorklet.addModule(await _workletURL(`${NS_DIR}/rnnoise-worklet.js?v=5`));
         const wasmBinary = await loadRnnoise({
             url:     `${NS_DIR}/rnnoise.wasm`,
             simdUrl: `${NS_DIR}/rnnoise_simd.wasm`,
