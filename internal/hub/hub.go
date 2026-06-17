@@ -315,6 +315,35 @@ func (h *Hub) handleCreateRoom(c *Client, raw json.RawMessage) {
 	c.sendMsg(mustMsg(protocol.TypeRoomCreated, protocol.RoomCreatedPayload{
 		Room: protocol.RoomInfo{ID: r.id, Name: r.name, UserCount: 0},
 	}))
+
+	// Push the refreshed list to everyone else so the new room appears in
+	// their sidebar live. The creator already got room_created (which also
+	// auto-joins them), so they are excluded here.
+	h.broadcastRoomList(c.userID)
+}
+
+// broadcastRoomList sends the current room list to every authenticated client
+// except exclude. Used when the set of rooms changes (e.g. a room is created).
+func (h *Hub) broadcastRoomList(exclude string) {
+	h.mu.RLock()
+	infos := make([]protocol.RoomInfo, 0, len(h.rooms))
+	for _, r := range h.rooms {
+		r.mu.RLock()
+		infos = append(infos, protocol.RoomInfo{ID: r.id, Name: r.name, UserCount: len(r.clients)})
+		r.mu.RUnlock()
+	}
+	clients := make([]*Client, 0, len(h.clients))
+	for _, c := range h.clients {
+		if c.userID != exclude {
+			clients = append(clients, c)
+		}
+	}
+	h.mu.RUnlock()
+
+	data := mustBytes(protocol.TypeRoomList, protocol.RoomListPayload{Rooms: infos})
+	for _, c := range clients {
+		c.trySend(data)
+	}
 }
 
 func (h *Hub) handleJoinRoom(c *Client, raw json.RawMessage) {
