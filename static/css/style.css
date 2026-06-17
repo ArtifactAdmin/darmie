@@ -356,6 +356,7 @@ input  { font: inherit; color: inherit; }
 
 .ctrl-btn:hover { background: var(--bg2); color: var(--txt0); }
 .ctrl-btn.active { background: var(--green); color: #000; }
+.ctrl-btn.muted  { background: var(--red); color: #fff; }
 .ctrl-btn.danger:hover { background: var(--red); color: #fff; }
 
 /* ─── Video grid ─────────────────────────────────────────────────────────── */
