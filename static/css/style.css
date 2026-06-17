@@ -401,6 +401,32 @@ input  { font: inherit; color: inherit; }
 
 .mirrored { transform: scaleX(-1); }
 
+.video-tile video { cursor: pointer; }
+
+/* ─── Focus / spotlight mode ──────────────────────────────────────────────── */
+/* The focused stream fills its own row as a large stage; the others wrap below
+   it as a thumbnail strip. */
+#video-grid.has-focus {
+    display: flex;
+    flex-wrap: wrap;
+    align-content: flex-start;
+    max-height: 78vh;
+}
+#video-grid.has-focus .video-tile {
+    width: 124px;
+    flex: 0 0 auto;
+}
+#video-grid.has-focus .video-tile.focused {
+    order: -1;
+    width: 100%;
+    aspect-ratio: auto;
+    height: 60vh;
+}
+#video-grid.has-focus .video-tile.focused video {
+    object-fit: contain;
+    background: #000;
+}
+
 .video-fs-btn {
     position: absolute;
     top: 8px;
