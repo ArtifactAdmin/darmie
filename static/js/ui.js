@@ -83,6 +83,7 @@ export const UI = {
         const grid = document.getElementById('video-grid');
         grid.innerHTML = '';
         grid.classList.add('hidden');
+        grid.classList.remove('has-focus');
         messages.innerHTML = '';
     },
 
@@ -254,8 +255,11 @@ export const UI = {
     },
 
     removeVideoTile(userId) {
-        document.getElementById('vtile-' + userId)?.remove();
+        const tile = document.getElementById('vtile-' + userId);
+        const wasFocused = tile?.classList.contains('focused');
+        tile?.remove();
         const grid = document.getElementById('video-grid');
+        if (wasFocused) grid.classList.remove('has-focus');
         if (grid.children.length === 0) grid.classList.add('hidden');
     },
 
@@ -312,6 +316,19 @@ function _playMedia(video) {
 function _syncTileMode(tile, stream) {
     const hasVideo = stream.getVideoTracks().some(t => t.readyState === 'live');
     tile.classList.toggle('audio-only', !hasVideo);
+}
+
+/**
+ * Toggle in-app focus (spotlight) for a tile: the focused stream fills the
+ * stage while the rest collapse to a thumbnail strip. Focusing a different
+ * tile moves the spotlight; clicking the focused tile clears it.
+ */
+function _focusTile(tile) {
+    const grid = document.getElementById('video-grid');
+    const focus = !tile.classList.contains('focused');
+    grid.querySelectorAll('.video-tile.focused').forEach(t => t.classList.remove('focused'));
+    tile.classList.toggle('focused', focus);
+    grid.classList.toggle('has-focus', focus);
 }
 
 /** Revoke all blob URLs tracked within a container before it is cleared. */
