@@ -3,11 +3,11 @@
  * Wires together the WebSocket, WebRTC, FileTransfer, and UI modules.
  */
 
-import { MSG }          from './protocol.js?v=2';
-import { WSManager }    from './ws.js?v=2';
-import { WebRTCManager} from './webrtc.js?v=2';
-import { FileTransfer } from './filetransfer.js?v=2';
-import { UI }           from './ui.js?v=2';
+import { MSG }          from './protocol.js?v=3';
+import { WSManager }    from './ws.js?v=3';
+import { WebRTCManager} from './webrtc.js?v=3';
+import { FileTransfer } from './filetransfer.js?v=3';
+import { UI }           from './ui.js?v=3';
 
 // Application state 
 
@@ -217,6 +217,10 @@ function _resetMediaState() {
     state.hasVideo          = false;
     state.hasScreen         = false;
     _screenAutoStartedAudio = false;
+    const audioBtn = document.getElementById('btn-audio');
+    audioBtn.textContent = '🎙️';
+    audioBtn.title = 'Start microphone';
+    audioBtn.classList.remove('muted');
     UI.setMediaBtn('btn-audio',  false);
     UI.setMediaBtn('btn-video',  false);
     UI.setMediaBtn('btn-screen', false);
@@ -322,17 +326,25 @@ document.getElementById('btn-audio').addEventListener('click', async () => {
             await webrtc.startAudio();
             state.hasAudio   = true;
             state.audioMuted = false;
-            UI.setMediaBtn('btn-audio', true);
-            document.getElementById('btn-audio').title = 'Mute microphone';
+            _reflectAudioState();
         } catch (err) {
             UI.toast(err.message, 'error');
         }
     } else {
         state.audioMuted = webrtc.toggleAudioMute();
-        UI.setMediaBtn('btn-audio', !state.audioMuted);
-        document.getElementById('btn-audio').title = state.audioMuted ? 'Unmute microphone' : 'Mute microphone';
+        _reflectAudioState();
     }
 });
+
+// Reflect mic state on the button: live mic vs muted is shown by the icon
+// (🎙️ / 🔇), a red "muted" style, and the title — so muting is unmistakable.
+function _reflectAudioState() {
+    const btn = document.getElementById('btn-audio');
+    btn.textContent = state.audioMuted ? '🔇' : '🎙️';
+    btn.title       = state.audioMuted ? 'Unmute microphone' : 'Mute microphone';
+    btn.classList.toggle('muted', state.audioMuted);
+    UI.setMediaBtn('btn-audio', state.hasAudio && !state.audioMuted);
+}
 
 // Event: video toggle
 
