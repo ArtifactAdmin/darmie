@@ -4,10 +4,37 @@
  * local and remote user-ID strings (lower = polite).
  */
 
+import { loadRnnoise, RnnoiseWorkletNode } from '../vendor/noise-suppressor/index.js?v=5';
+
 const ICE_SERVERS = [
     { urls: 'stun:stun.l.google.com:19302'  },
     { urls: 'stun:stun1.l.google.com:19302' },
 ];
+
+const NS_DIR        = '/vendor/noise-suppressor';
+const RNNOISE_FRAME = 48000; // RNNoise runs at 48 kHz
+
+// getUserMedia audio constraints — echo cancellation + AGC always on; the
+// browser's own noise suppression is left on as a baseline (RNNoise, when the
+// user toggles it, is an additional pass layered on top).
+const AUDIO_CONSTRAINTS = {
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl:  true,
+};
+
+/**
+ * Fetch a worklet script and hand back a blob URL with an explicit JS MIME
+ * type. AudioWorklet.addModule rejects ("Unable to load a worklet's module")
+ * if the server returns the script with a non-JS content type or via a proxy/
+ * SPA fallback; loading from a same-origin blob sidesteps that.
+ */
+async function _workletURL(src) {
+    const res = await fetch(src);
+    if (!res.ok) throw new Error(`worklet fetch ${res.status} for ${src}`);
+    const code = await res.text();
+    return URL.createObjectURL(new Blob([code], { type: 'text/javascript' }));
+}
 
 export class WebRTCManager {
     /**
@@ -24,6 +51,9 @@ export class WebRTCManager {
 
         this._localStream  = null; // camera/mic MediaStream
         this._screenStream = null; // getDisplayMedia stream
+
+        this._micTrack = null; // raw microphone track (mute target + RNNoise input)
+        this._rnnoise  = null; // { ctx, node, source, dest, track } when active
 
         // Callbacks set by app.js
         /** @type {((userId: string, stream: MediaStream) => void) | null} */
@@ -68,8 +98,10 @@ export class WebRTCManager {
 
     closeAll() {
         for (const userId of Object.keys(this._peers)) this.closePeer(userId);
+        this.disableRnnoise();
         this._stopStreamTracks(this._localStream);
         this._localStream = null;
+        this._micTrack = null;
         this._stopStreamTracks(this._screenStream);
         this._screenStream = null;
     }
@@ -128,8 +160,9 @@ export class WebRTCManager {
     // 
 
     async startAudio() {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: AUDIO_CONSTRAINTS });
         for (const track of stream.getAudioTracks()) {
+            this._micTrack = track;
             this._ensureLocalStream().addTrack(track);
             for (const peer of Object.values(this._peers)) {
                 const sender = peer.pc.addTrack(track, this._localStream);
@@ -140,21 +173,82 @@ export class WebRTCManager {
     }
 
     toggleAudioMute() {
-        if (!this._localStream) return false;
-        const tracks = this._localStream.getAudioTracks();
-        if (!tracks.length) return false;
-        const mute = tracks[0].enabled; // will become muted
-        tracks.forEach(t => { t.enabled = !mute; });
+        // Mute the raw mic track. When RNNoise is active the mic feeds the
+        // worklet graph, so silencing it silences the processed output too.
+        if (!this._micTrack) return false;
+        const mute = this._micTrack.enabled; // will become muted
+        this._micTrack.enabled = !mute;
         return mute; // returns true if now muted
     }
 
     stopAudio() {
+        this.disableRnnoise();
         if (!this._localStream) return;
         for (const track of this._localStream.getAudioTracks()) {
             track.stop();
             this._localStream.removeTrack(track);
             this._removeSenderTrack(track);
         }
+        this._micTrack = null;
+    }
+
+    //
+    // Media — RNNoise noise suppression (per-user, toggleable)
+    //
+
+    isRnnoiseActive() {
+        return this._rnnoise !== null;
+    }
+
+    /** The audio track currently being sent: RNNoise output if active, else raw mic. */
+    _outgoingAudioTrack() {
+        return this._rnnoise ? this._rnnoise.track : this._micTrack;
+    }
+
+    /**
+     * Route the mic through the RNNoise worklet and swap the processed track
+     * onto every peer (via replaceTrack — no renegotiation needed).
+     */
+    async enableRnnoise() {
+        if (this._rnnoise || !this._micTrack) return;
+
+        const ctx = new AudioContext({ sampleRate: RNNOISE_FRAME });
+        await ctx.audioWorklet.addModule(await _workletURL(`${NS_DIR}/rnnoise-worklet.js?v=5`));
+        const wasmBinary = await loadRnnoise({
+            url:     `${NS_DIR}/rnnoise.wasm`,
+            simdUrl: `${NS_DIR}/rnnoise_simd.wasm`,
+        });
+
+        const source = ctx.createMediaStreamSource(new MediaStream([this._micTrack]));
+        const node   = new RnnoiseWorkletNode(ctx, { maxChannels: 1, wasmBinary });
+        const dest   = ctx.createMediaStreamDestination();
+        source.connect(node).connect(dest);
+
+        const track = dest.stream.getAudioTracks()[0];
+        this._rnnoise = { ctx, node, source, dest, track };
+
+        for (const sender of this._audioSenders()) await sender.replaceTrack(track);
+    }
+
+    /** Stop RNNoise and restore the raw mic track on every peer. */
+    disableRnnoise() {
+        if (!this._rnnoise) return;
+        const { ctx, node, track } = this._rnnoise;
+        for (const sender of this._audioSenders(track)) sender.replaceTrack(this._micTrack);
+        this._rnnoise = null;
+        node.destroy?.();
+        ctx.close().catch(() => {});
+    }
+
+    /** Audio senders across all peers (optionally only those carrying `track`). */
+    _audioSenders(track) {
+        const out = [];
+        for (const peer of Object.values(this._peers)) {
+            for (const s of peer.pc.getSenders()) {
+                if (s.track && s.track.kind === 'audio' && (!track || s.track === track)) out.push(s);
+            }
+        }
+        return out;
     }
 
     // 
@@ -270,10 +364,12 @@ export class WebRTCManager {
             if (pc.connectionState === 'failed') this.closePeer(userId);
         };
 
-        // Add any active local tracks to the new peer connection
+        // Add any active local tracks to the new peer connection. When RNNoise
+        // is active, send its processed track in place of the raw mic.
         if (this._localStream) {
             for (const track of this._localStream.getTracks()) {
-                const sender = pc.addTrack(track, this._localStream);
+                const outgoing = (track === this._micTrack) ? this._outgoingAudioTrack() : track;
+                const sender = pc.addTrack(outgoing, this._localStream);
                 peer.senders.push(sender);
             }
         }

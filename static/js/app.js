@@ -3,11 +3,11 @@
  * Wires together the WebSocket, WebRTC, FileTransfer, and UI modules.
  */
 
-import { MSG }          from './protocol.js?v=4';
-import { WSManager }    from './ws.js?v=4';
-import { WebRTCManager} from './webrtc.js?v=4';
-import { FileTransfer } from './filetransfer.js?v=4';
-import { UI }           from './ui.js?v=4';
+import { MSG }          from './protocol.js?v=5';
+import { WSManager }    from './ws.js?v=5';
+import { WebRTCManager} from './webrtc.js?v=5';
+import { FileTransfer } from './filetransfer.js?v=5';
+import { UI }           from './ui.js?v=5';
 
 // Application state 
 
@@ -222,6 +222,7 @@ function _resetMediaState() {
     audioBtn.title = 'Start microphone';
     audioBtn.classList.remove('muted');
     UI.setMediaBtn('btn-audio',  false);
+    UI.setMediaBtn('btn-rnnoise', false);
     UI.setMediaBtn('btn-video',  false);
     UI.setMediaBtn('btn-screen', false);
 }
@@ -345,6 +346,31 @@ function _reflectAudioState() {
     btn.classList.toggle('muted', state.audioMuted);
     UI.setMediaBtn('btn-audio', state.hasAudio && !state.audioMuted);
 }
+
+// Event: RNNoise noise-suppression toggle
+
+document.getElementById('btn-rnnoise').addEventListener('click', async () => {
+    if (!state.hasAudio) {
+        UI.toast('Turn on your microphone first', 'info');
+        return;
+    }
+    const btn = document.getElementById('btn-rnnoise');
+    btn.disabled = true;
+    try {
+        if (webrtc.isRnnoiseActive()) {
+            webrtc.disableRnnoise();
+            UI.toast('Noise suppression off', 'info');
+        } else {
+            await webrtc.enableRnnoise();
+            UI.toast('Noise suppression on', 'success');
+        }
+        UI.setMediaBtn('btn-rnnoise', webrtc.isRnnoiseActive());
+    } catch (err) {
+        UI.toast('Noise suppression failed: ' + err.message, 'error');
+    } finally {
+        btn.disabled = false;
+    }
+});
 
 // Event: video toggle
 
