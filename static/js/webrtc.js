@@ -4,7 +4,7 @@
  * local and remote user-ID strings (lower = polite).
  */
 
-import { loadRnnoise, RnnoiseWorkletNode } from '../vendor/noise-suppressor/index.js?v=5';
+import { loadRnnoise, RnnoiseWorkletNode } from '../vendor/noise-suppressor/index.js?v=7';
 
 const ICE_SERVERS = [
     { urls: 'stun:stun.l.google.com:19302'  },
@@ -135,9 +135,20 @@ export class WebRTCManager {
 
     async handleAnswer(fromUserId, sdp) {
         const peer = this._peers[fromUserId];
-        if (!peer || peer.ignoreOffer) return;
-        await peer.pc.setRemoteDescription(sdp);
-        await this._flushPending(fromUserId);
+        if (!peer) return;
+        // Do NOT gate on peer.ignoreOffer here. ignoreOffer reflects the most
+        // recent *offer* we chose to drop during glare; gating answers on it
+        // discarded the answer to our own offer, so a track added under glare
+        // (e.g. turning the camera on while the peer renegotiates) never
+        // reached the other side. An answer is only valid in have-local-offer;
+        // in any other state it is stale, so skip it instead of throwing.
+        if (peer.pc.signalingState !== 'have-local-offer') return;
+        try {
+            await peer.pc.setRemoteDescription(sdp);
+            await this._flushPending(fromUserId);
+        } catch (err) {
+            console.warn('handleAnswer:', err);
+        }
     }
 
     async handleICECandidate(fromUserId, candidateInit) {
@@ -213,7 +224,7 @@ export class WebRTCManager {
         if (this._rnnoise || !this._micTrack) return;
 
         const ctx = new AudioContext({ sampleRate: RNNOISE_FRAME });
-        await ctx.audioWorklet.addModule(await _workletURL(`${NS_DIR}/rnnoise-worklet.js?v=5`));
+        await ctx.audioWorklet.addModule(await _workletURL(`${NS_DIR}/rnnoise-worklet.js?v=7`));
         const wasmBinary = await loadRnnoise({
             url:     `${NS_DIR}/rnnoise.wasm`,
             simdUrl: `${NS_DIR}/rnnoise_simd.wasm`,

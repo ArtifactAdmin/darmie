@@ -11,6 +11,8 @@ const (
 	// Client
 	TypeRegister     MessageType = "register"
 	TypeLogin        MessageType = "login"
+	TypeResume       MessageType = "resume" // resume a persisted session by token
+	TypeLogout       MessageType = "logout" // invalidate the current session
 	TypeListRooms    MessageType = "list_rooms"
 	TypeCreateRoom   MessageType = "create_room"
 	TypeJoinRoom     MessageType = "join_room"
@@ -22,8 +24,8 @@ const (
 	TypeVideoStopped MessageType = "video_stopped" // (relayed to room)
 
 	// Server
-	TypeFileMessage  MessageType = "file_message"
-	TypeAuthSuccess  MessageType = "auth_success"
+	TypeFileMessage MessageType = "file_message"
+	TypeAuthSuccess MessageType = "auth_success"
 	TypeAuthError   MessageType = "auth_error"
 	TypeRoomList    MessageType = "room_list"
 	TypeRoomJoined  MessageType = "room_joined"
@@ -59,6 +61,12 @@ type RegisterPayload struct {
 type LoginPayload struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
+}
+
+// ResumePayload carries a persisted session token for silent re-authentication
+// after a page reload or dropped connection.
+type ResumePayload struct {
+	SessionToken string `json:"session_token"`
 }
 
 type CreateRoomPayload struct {
@@ -112,9 +120,11 @@ type RoomInfo struct {
 }
 
 type AuthSuccessPayload struct {
-	UserID      string `json:"user_id"`
-	Username    string `json:"username"`
-	UploadToken string `json:"upload_token"`
+	UserID   string `json:"user_id"`
+	Username string `json:"username"`
+	// SessionToken doubles as the credential for HTTP file uploads and as the
+	// token a client persists to resume its session after a reload.
+	SessionToken string `json:"session_token"`
 }
 
 type AuthErrorPayload struct {

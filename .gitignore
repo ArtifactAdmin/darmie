@@ -8,6 +8,13 @@
 # Build output
 /bin/
 /dist/
+/darmie
+
+# Runtime data (SQLite database + uploaded files)
+*.db
+*.db-wal
+*.db-shm
+/uploads/
 
 # Test binary
 *.test

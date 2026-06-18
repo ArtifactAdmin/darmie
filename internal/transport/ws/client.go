@@ -1,4 +1,4 @@
-package hub
+package ws
 
 import (
 	"encoding/json"
@@ -6,38 +6,40 @@ import (
 	"sync"
 	"time"
 
-	"darmie/internal/protocol"
-
 	"github.com/gorilla/websocket"
+
+	"darmie/internal/protocol"
 )
 
 const (
 	writeWait      = 10 * time.Second
 	pongWait       = 60 * time.Second
-	pingInterval   = 54 * time.Second // must be less than pongWait
+	pingInterval   = 54 * time.Second // must be < pongWait
 	maxMessageSize = 65536            // 64 KB (accommodates SDP blobs)
 	sendBufSize    = 256
+	maxMsgPerSec   = 10
 )
 
-// Client represents a single WebSocket connection.
+// Client is a single WebSocket connection and its per-connection state. It owns
+// transport concerns only; all application logic lives behind the Hub's
+// service calls.
 type Client struct {
 	hub  *Hub
 	conn *websocket.Conn
 	send chan []byte
 
 	// Set after authentication.
-	userID      string
-	username    string
-	uploadToken string // revoked on disconnect
+	userID       string
+	username     string
+	sessionToken string // persisted session; doubles as the upload credential
 
-	// Rooms this client is currently in (protected by roomsMu).
+	// Rooms this client is currently in.
 	rooms   map[string]struct{}
 	roomsMu sync.RWMutex
 
-	// once ensures disconnect cleanup runs exactly once.
-	once sync.Once
+	once sync.Once // disconnect cleanup runs exactly once
 
-	// Rate limiting for text messages (10 per second).
+	// Text-message rate limiting.
 	msgMu    sync.Mutex
 	msgCount int
 	msgWin   time.Time
@@ -52,6 +54,32 @@ func newClient(conn *websocket.Conn, hub *Hub) *Client {
 	}
 }
 
+// ─── Membership bookkeeping ─────────────────────────────────────────────────
+
+func (c *Client) addRoom(id string) {
+	c.roomsMu.Lock()
+	c.rooms[id] = struct{}{}
+	c.roomsMu.Unlock()
+}
+
+func (c *Client) removeRoom(id string) {
+	c.roomsMu.Lock()
+	delete(c.rooms, id)
+	c.roomsMu.Unlock()
+}
+
+func (c *Client) roomIDs() []string {
+	c.roomsMu.RLock()
+	defer c.roomsMu.RUnlock()
+	ids := make([]string, 0, len(c.rooms))
+	for id := range c.rooms {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+// ─── Lifecycle ──────────────────────────────────────────────────────────────
+
 // close tears down the connection exactly once, regardless of which pump calls it.
 func (c *Client) close() {
 	c.once.Do(func() {
@@ -60,7 +88,7 @@ func (c *Client) close() {
 	})
 }
 
-// readPump reads messages from the WebSocket and routes them through the hub.
+// readPump reads frames and routes them through the hub.
 func (c *Client) readPump() {
 	defer c.close()
 
@@ -83,7 +111,7 @@ func (c *Client) readPump() {
 	}
 }
 
-// writePump flushes the send channel to the WebSocket and sends periodic pings.
+// writePump flushes the send channel and sends periodic pings.
 func (c *Client) writePump() {
 	ticker := time.NewTicker(pingInterval)
 	defer func() {
@@ -102,7 +130,6 @@ func (c *Client) writePump() {
 			if err := c.conn.WriteMessage(websocket.TextMessage, msg); err != nil {
 				return
 			}
-
 		case <-ticker.C:
 			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
 			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
@@ -112,7 +139,8 @@ func (c *Client) writePump() {
 	}
 }
 
-// sendMsg serialises a Message and queues it for the client.
+// ─── Send helpers ─────────────────────────────────────────────────────────────
+
 func (c *Client) sendMsg(m *protocol.Message) {
 	data, err := json.Marshal(m)
 	if err != nil {
@@ -121,31 +149,27 @@ func (c *Client) sendMsg(m *protocol.Message) {
 	c.trySend(data)
 }
 
-// trySend enqueues raw bytes; disconnects the client if its buffer is full.
-// Signaling messages (offer/answer/ICE) must never be silently dropped.
+// trySend enqueues raw bytes, disconnecting the client if its buffer is full.
+// Signaling messages must never be silently dropped, so a slow client is closed
+// rather than allowed to fall behind.
 func (c *Client) trySend(data []byte) {
 	select {
 	case c.send <- data:
 	default:
-		// The client's send buffer is full; it is too slow to keep connected.
 		go c.close()
 	}
 }
 
-// sendError sends a generic error message to the client.
 func (c *Client) sendError(msg string) {
 	c.sendMsg(mustMsg(protocol.TypeError, protocol.ErrorPayload{Message: msg}))
 }
 
-// sendAuthError sends an auth_error message to the client.
 func (c *Client) sendAuthError(msg string) {
 	c.sendMsg(mustMsg(protocol.TypeAuthError, protocol.AuthErrorPayload{Message: msg}))
 }
 
-// allowMessage returns true if this client is within the rate limit (10 msgs/sec).
-// Excess messages are silently dropped rather than generating error traffic.
+// allowMessage reports whether this client is within the text rate limit.
 func (c *Client) allowMessage() bool {
-	const maxPerSec = 10
 	now := time.Now()
 	c.msgMu.Lock()
 	defer c.msgMu.Unlock()
@@ -154,5 +178,5 @@ func (c *Client) allowMessage() bool {
 		c.msgCount = 0
 	}
 	c.msgCount++
-	return c.msgCount <= maxPerSec
+	return c.msgCount <= maxMsgPerSec
 }

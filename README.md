@@ -19,15 +19,24 @@ A real-time communication platform with text chat, voice, video, screen sharing,
           │                             │
           ▼                             ▼
    ┌──────────────────────────────────────┐
-   │  Go Signaling + HTTP Server          │
-   │  • User auth (bcrypt)                │
-   │  • Room management                   │
+   │  Go server (hexagonal / ports        │
+   │  & adapters)                         │
+   │  • User auth (bcrypt) + sessions     │
+   │  • Room management (in-memory)       │
    │  • WebRTC offer/answer/ICE relay     │
    │  • Text message broadcast            │
+   │  • SQLite: users, sessions,          │
+   │    messages, file metadata           │
    └──────────────────────────────────────┘
 ```
 
 **Topology:** Mesh — each user has a direct RTCPeerConnection to every other user in the room (capped at 12 users per room).
+
+**Architecture:** The Go backend follows the hexagonal (ports & adapters)
+pattern. The `domain` core and `core` use-case services depend only on `port`
+interfaces; concrete adapters (SQLite, bcrypt, disk storage, WebSocket/HTTP) are
+wired in at the composition root (`main.go`) and are swappable without touching
+business logic.
 
 ---
 
@@ -45,6 +54,8 @@ Every WebSocket message is a JSON envelope:
 |---|---|---|
 | `register` | `{username, password}` | Create a new account |
 | `login` | `{username, password}` | Authenticate |
+| `resume` | `{session_token}` | Re-authenticate silently with a persisted session token (page reload / reconnect) |
+| `logout` | `{}` | Invalidate the current session token server-side |
 | `list_rooms` | `{}` | Request current room list |
 | `create_room` | `{name}` | Create a new room |
 | `join_room` | `{room_id}` | Join a room (leaves current room first) |
@@ -58,7 +69,7 @@ Every WebSocket message is a JSON envelope:
 
 | Type | Payload | Description |
 |---|---|---|
-| `auth_success` | `{user_id, username}` | Auth succeeded |
+| `auth_success` | `{user_id, username, session_token}` | Auth succeeded; `session_token` is persisted by the client and also used as the file-upload credential |
 | `auth_error` | `{message}` | Auth failed |
 | `room_list` | `{rooms:[]}` | Current room list |
 | `room_created` | `{room}` | Room was created |
@@ -117,22 +128,36 @@ Existing user (A)            New user (B)          Server
 
 ```
 darmie/
-├── main.go                      Go HTTP + WebSocket server entry point
+├── main.go                      Composition root: wires adapters → core → transport
 ├── go.mod
 ├── internal/
-│   ├── protocol/protocol.go     Message type constants and payload structs
-│   ├── store/store.go           Thread-safe in-memory user store (bcrypt)
-│   └── hub/
-│       ├── hub.go               Room management + message routing
-│       └── client.go            Per-connection WebSocket handler
+│   ├── domain/                  Core entities, invariants, errors (no deps)
+│   │   └── domain.go
+│   ├── port/                    Outbound interfaces the core depends on
+│   │   └── port.go              (UserRepository, SessionRepository, …, PasswordHasher)
+│   ├── core/                    Use-case services (depend only on ports)
+│   │   ├── auth.go              register / login / resume / logout
+│   │   ├── chat.go              post message / load history
+│   │   └── file.go              save / open uploaded files
+│   ├── adapter/                 Driven (outbound) adapters implementing ports
+│   │   ├── sqlite/              users, sessions, messages, files
+│   │   ├── security/            bcrypt hasher + random token generator
+│   │   └── diskstore/           filesystem blob storage
+│   ├── protocol/protocol.go     Wire DTOs (message types + payload structs)
+│   └── transport/ws/            Driving (inbound) adapter
+│       ├── hub.go               router + WebSocket upgrade
+│       ├── registry.go          in-memory presence (clients + rooms)
+│       ├── client.go            per-connection transport (pumps, rate limit)
+│       └── handlers_*.go        auth / room / signal / chat / file handlers
 └── static/
     ├── index.html               Single-page app
     ├── css/style.css
     └── js/
         ├── protocol.js          Message type constants (mirrors Go)
         ├── ws.js                WebSocket manager
-        ├── webrtc.js            RTCPeerConnection manager
+        ├── webrtc.js            RTCPeerConnection manager (perfect negotiation)
         ├── filetransfer.js      DataChannel file chunking
+        ├── icons.js             Inline SVG icon set
         ├── ui.js                All DOM manipulation (XSS-safe)
         └── app.js               Application entry point
 ```
@@ -163,9 +188,10 @@ Then open **http://localhost:8080** in two or more browser tabs.
 
 | Decision | Rationale |
 |---|---|
-| WebSocket = session | No JWT needed; connection IS the auth context |
+| Hexagonal core | Business logic depends on `port` interfaces, not SQLite/WS — adapters are swappable and the core is unit-testable in isolation |
+| Persistent session token | Survives reloads/reconnects (resume) and restarts (SQLite); doubles as the upload credential, so there is one auth concept, not two |
 | Mesh topology | Simple for small rooms (≤12 users); no SFU complexity |
-| Single room at a time | Simplifies peer connection lifecycle |
+| Single room at a time | Simplifies peer lifecycle; switching a channel tears down the old room's media + peers so audio/video never leak across channels |
 | `sync.Once` disconnect | Guarantees cleanup runs exactly once from either pump |
 | Slow-client disconnect | Full send buffer → close connection (signaling must not drop) |
 | Server-populated sender ID | Prevents identity spoofing in forwarded messages |
@@ -176,7 +202,7 @@ Then open **http://localhost:8080** in two or more browser tabs.
 
 ## Limitations & Future Work
 
-- **No persistence** — messages and users are in-memory only; restart clears everything.
+- **Persistence** — users, sessions, chat messages, and file metadata are stored in SQLite; uploaded file bytes live under the uploads directory. Live room membership (presence) is in-memory and resets on restart, but accounts, history, and sessions survive. Point `-db` at a durable volume in production.
 - **No TURN server** — WebRTC will fail to connect through symmetric NAT without one. Add a TURN server to the `ICE_SERVERS` list in `webrtc.js`.
 - **No TLS built-in** — run behind a TLS-terminating reverse proxy (nginx, Caddy) in production. HTTPS is required for browser media APIs.
 - **No rate limiting** — add per-IP rate limits for auth endpoints in production.

@@ -4,6 +4,8 @@
  * to prevent XSS.
  */
 
+import { ICONS } from './icons.js?v=7';
+
 export const UI = {
     // 
     // View switching
@@ -145,7 +147,7 @@ export const UI = {
         messages.scrollTop = messages.scrollHeight;
     },
 
-    addFileMessage({ fromUsername, filename, url, size, isSelf = false }) {
+    addFileMessage({ fromUsername, filename, url, size, mimeType = '', isSelf = false }) {
         const messages = document.getElementById('messages');
         const div = document.createElement('div');
         div.className = 'message file-msg' + (isSelf ? ' self' : '');
@@ -187,9 +189,37 @@ export const UI = {
 
         fileLine.append(icon, link, szSpan);
         body.append(hdr, fileLine);
+
+        // Inline preview for images: a clickable thumbnail above the file line.
+        if (_isImage(mimeType, filename)) {
+            const thumbLink = document.createElement('a');
+            thumbLink.href = url;
+            thumbLink.target = '_blank';
+            thumbLink.rel = 'noopener';
+            thumbLink.dataset.blobUrl = url; // revoked with the rest on room clear
+
+            const img = document.createElement('img');
+            img.className = 'file-thumb';
+            img.loading = 'lazy';
+            img.alt = filename;
+            img.src = url;
+
+            thumbLink.appendChild(img);
+            body.appendChild(thumbLink);
+        }
+
         div.append(av, body);
         messages.appendChild(div);
         messages.scrollTop = messages.scrollHeight;
+    },
+
+    // Empty the video grid and hide it. Used when leaving or switching rooms so
+    // local tiles (camera/screen) never linger across channels.
+    clearVideoGrid() {
+        const grid = document.getElementById('video-grid');
+        grid.innerHTML = '';
+        grid.classList.add('hidden');
+        grid.classList.remove('has-focus');
     },
 
     // 
@@ -200,6 +230,15 @@ export const UI = {
         const grid = document.getElementById('video-grid');
         grid.classList.remove('hidden');
 
+        // 'local'        → our own camera (mirror it, like a selfie view)
+        // 'local-screen' → our own screen/window share (must NOT be mirrored,
+        //                  otherwise shared text/UI reads backwards)
+        const isLocal  = userId.startsWith('local');
+        const isCamera = userId === 'local';
+        const displayName = userId === 'local'        ? 'You'
+                          : userId === 'local-screen'  ? 'You (screen)'
+                          :                              username;
+
         let tile = document.getElementById('vtile-' + userId);
         if (!tile) {
             tile = document.createElement('div');
@@ -209,24 +248,22 @@ export const UI = {
             const video = document.createElement('video');
             video.autoplay   = true;
             video.playsInline = true;
-            if (userId.startsWith('local')) {
-                video.muted = true;
-                video.classList.add('mirrored');
-            }
+            if (isLocal)  video.muted = true;        // never echo our own audio
+            if (isCamera) video.classList.add('mirrored'); // mirror camera only
 
             // Shown in place of the black video frame while the stream carries
             // audio only (e.g. a voice-only participant sharing just a mic).
-            const avatar = _makeAvatar(userId.startsWith('local') ? 'You' : username, 72);
+            const avatar = _makeAvatar(displayName, 72);
             avatar.classList.add('tile-avatar');
 
             const label = document.createElement('div');
             label.className = 'video-label';
-            label.textContent = userId.startsWith('local') ? 'You' : username;
+            label.textContent = displayName;
 
             const fsBtn = document.createElement('button');
             fsBtn.className = 'video-fs-btn';
             fsBtn.title = 'Fullscreen';
-            fsBtn.textContent = '⛶';
+            fsBtn.innerHTML = ICONS.fullscreen;
 
             fsBtn.addEventListener('click', () => {
                 if (document.fullscreenElement === tile) {
@@ -238,8 +275,8 @@ export const UI = {
 
             tile.addEventListener('fullscreenchange', () => {
                 const isFs = document.fullscreenElement === tile;
-                fsBtn.textContent = isFs ? '✕' : '⛶';
-                fsBtn.title       = isFs ? 'Exit fullscreen' : 'Fullscreen';
+                fsBtn.innerHTML = isFs ? ICONS.minimize : ICONS.fullscreen;
+                fsBtn.title     = isFs ? 'Exit fullscreen' : 'Fullscreen';
             });
 
             // The <video> element fires `resize` whenever a video track starts
@@ -405,6 +442,12 @@ function _strColor(str) {
 
 function _fmtTime(tsMs) {
     return new Date(tsMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+/** Heuristic: is this attachment an image we can preview inline? */
+function _isImage(mimeType, filename) {
+    if (mimeType && mimeType.startsWith('image/')) return true;
+    return /\.(png|jpe?g|gif|webp|bmp|svg|avif)$/i.test(filename || '');
 }
 
 function _fmtBytes(bytes) {
