@@ -4,7 +4,7 @@
  * to prevent XSS.
  */
 
-import { ICONS } from './icons.js?v=5';
+import { ICONS } from './icons.js?v=6';
 
 export const UI = {
     // 

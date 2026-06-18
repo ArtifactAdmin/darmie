@@ -39,6 +39,18 @@ input  { font: inherit; color: inherit; }
 /* ─── Utilities ──────────────────────────────────────────────────────────── */
 .hidden { display: none !important; }
 
+/* Controls that only appear on narrow viewports (drawer toggles). Hidden on
+   desktop; the mobile media query at the bottom reveals them. */
+.mobile-only { display: none !important; }
+
+/* Dim layer behind slide-in drawers (mobile only; toggled via .hidden). */
+#drawer-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, .5);
+    z-index: 55;
+}
+
 /* Inline SVG icons inherit button colour and are sized by their container. */
 .ctrl-btn svg,
 .file-label svg { width: 19px; height: 19px; display: block; }
@@ -54,6 +66,8 @@ input  { font: inherit; color: inherit; }
     align-items: center;
     justify-content: center;
     height: 100vh;
+    height: 100dvh; /* avoid mobile URL-bar clipping where supported */
+    padding: 16px;
     background: radial-gradient(ellipse at 60% 40%, #1a2744 0%, var(--bg0) 70%);
 }
 
@@ -62,7 +76,7 @@ input  { font: inherit; color: inherit; }
     border: 1px solid var(--bg3);
     border-radius: var(--radius-lg);
     padding: 40px 36px;
-    width: 360px;
+    width: min(360px, 100%);
     box-shadow: 0 24px 64px rgba(0,0,0,.5);
 }
 
@@ -195,6 +209,7 @@ input  { font: inherit; color: inherit; }
     display: grid;
     grid-template-columns: var(--sidebar-w) 1fr var(--panel-w);
     height: 100vh;
+    height: 100dvh; /* avoid mobile URL-bar clipping where supported */
     overflow: hidden;
 }
 
@@ -711,3 +726,67 @@ input  { font: inherit; color: inherit; }
    Scrollbar (non-webkit)
 ═══════════════════════════════════════════════════════════════════════════ */
 * { scrollbar-width: thin; scrollbar-color: var(--bg3) transparent; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   MOBILE  (≤ 768px)
+   The three-column grid collapses to a single column (the chat). The sidebar
+   and users panel become off-canvas drawers slid in over a backdrop.
+═══════════════════════════════════════════════════════════════════════════ */
+@media (max-width: 768px) {
+    /* Only the main area stays in flow; the panels are taken out via fixed. */
+    #app-view { grid-template-columns: 1fr; }
+
+    #sidebar,
+    #users-panel {
+        position: fixed;
+        top: 0;
+        bottom: 0;
+        z-index: 60;
+        transition: transform .25s ease;
+        will-change: transform;
+    }
+
+    #sidebar {
+        left: 0;
+        width: 82%;
+        max-width: 300px;
+        transform: translateX(-100%);
+    }
+
+    #users-panel {
+        right: 0;
+        width: 72%;
+        max-width: 260px;
+        transform: translateX(100%);
+    }
+
+    /* .open is toggled from app.js when a drawer button is tapped. */
+    #sidebar.open,
+    #users-panel.open {
+        transform: translateX(0);
+        box-shadow: 0 0 48px rgba(0, 0, 0, .6);
+    }
+
+    /* Reveal the drawer-toggle buttons that are hidden on desktop. */
+    .mobile-only { display: flex !important; }
+
+    /* Keep the top bar compact so all controls fit a narrow screen. */
+    #top-bar { padding: 0 10px; gap: 8px; }
+    .media-controls { gap: 2px; }
+    .ctrl-btn { width: 38px; height: 38px; } /* comfortable touch targets */
+    .room-title { min-width: 0; flex: 1; }
+    #room-name-display {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    /* Video tiles stack more densely and never eat the whole screen. */
+    #video-grid {
+        grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+        max-height: 38dvh;
+    }
+
+    #messages { padding: 10px 12px; }
+    #input-bar { padding: 8px 10px; gap: 6px; }
+}

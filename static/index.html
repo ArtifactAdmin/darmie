@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Darmie</title>
-    <link rel="stylesheet" href="/css/style.css?v=5">
+    <link rel="stylesheet" href="/css/style.css?v=6">
 </head>
 <body>
 
@@ -115,6 +115,9 @@
 
             <!-- Top bar -->
             <header id="top-bar">
+                <button id="btn-menu"
+                    class="ctrl-btn mobile-only"
+                    title="Rooms" data-icon="menu"></button>
                 <div class="room-title">
                     <span class="room-hash">#</span>
                     <span id="room-name-display"></span>
@@ -129,6 +132,9 @@
                     <button id="btn-screen"
                         class="ctrl-btn"
                         title="Share screen" data-icon="screen"></button>
+                    <button id="btn-users"
+                        class="ctrl-btn mobile-only"
+                        title="Members" data-icon="users"></button>
                     <button id="btn-leave"
                         class="ctrl-btn danger"
                         title="Leave room" data-icon="leave"></button>
@@ -164,6 +170,9 @@
         <ul id="user-list"></ul>
     </aside>
 
+    <!-- Backdrop shown behind slide-in drawers on mobile -->
+    <div id="drawer-backdrop" class="hidden"></div>
+
 </div><!-- /app-view -->
 
 <!-- CREATE ROOM MODAL -->
@@ -186,6 +195,6 @@
 <!-- Toast container -->
 <div id="toasts"></div>
 
-<script type="module" src="/js/app.js?v=5"></script>
+<script type="module" src="/js/app.js?v=6"></script>
 </body>
 </html>

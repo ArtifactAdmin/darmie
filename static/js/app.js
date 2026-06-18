@@ -3,12 +3,12 @@
  * Wires together the WebSocket, WebRTC, FileTransfer, and UI modules.
  */
 
-import { MSG }            from './protocol.js?v=5';
-import { WSManager }      from './ws.js?v=5';
-import { WebRTCManager}   from './webrtc.js?v=5';
-import { FileTransfer }   from './filetransfer.js?v=5';
-import { UI }             from './ui.js?v=5';
-import { ICONS, applyIcons } from './icons.js?v=5';
+import { MSG }            from './protocol.js?v=6';
+import { WSManager }      from './ws.js?v=6';
+import { WebRTCManager}   from './webrtc.js?v=6';
+import { FileTransfer }   from './filetransfer.js?v=6';
+import { UI }             from './ui.js?v=6';
+import { ICONS, applyIcons } from './icons.js?v=6';
 
 // Key under which the resumable session token is persisted across reloads.
 const SESSION_KEY = 'darmie_session';
@@ -72,6 +72,8 @@ ws.on(MSG.AUTH_SUCCESS, (p) => {
     webrtc.init(p.user_id);
     UI.showApp(p.username);
     ws.send(MSG.LIST_ROOMS);
+    // No room is active yet — on mobile, open the rooms drawer to pick one.
+    if (_isMobile()) _openDrawer(_sidebarEl);
 });
 
 ws.on(MSG.AUTH_ERROR, (p) => {
@@ -142,11 +144,15 @@ ws.on(MSG.ROOM_JOINED, (p) => {
             }
         }
     }
+    // On mobile, collapse the rooms drawer so the chat is in full view.
+    if (_isMobile()) _closeDrawers();
     // Existing peers will send offers to us via onnegotiationneeded — we wait.
 });
 
 ws.on(MSG.ROOM_LEFT, () => {
     _resetRoom();
+    // Back to a no-room state: surface the rooms drawer so the user can pick one.
+    if (_isMobile()) _openDrawer(_sidebarEl);
 });
 
 ws.on(MSG.USER_JOINED, (p) => {
@@ -306,6 +312,7 @@ document.getElementById('logout-btn').addEventListener('click', () => {
     ws.send(MSG.LOGOUT);
     _clearSession();
     _resetRoom();
+    _closeDrawers(); // clear any drawer/backdrop before returning to the auth screen
     state.userId       = null;
     state.username     = null;
     state.sessionToken = null;
@@ -495,6 +502,42 @@ document.getElementById('file-input').addEventListener('change', async e => {
         UI.toast('Upload error: ' + err.message, 'error');
     }
 });
+
+// Mobile drawers — the sidebar (rooms) and users panel slide in over a backdrop
+// on narrow screens; on desktop they are always-visible grid columns and these
+// helpers are inert (the .open class has no effect outside the mobile query).
+
+const _mql        = window.matchMedia('(max-width: 768px)');
+const _sidebarEl  = document.getElementById('sidebar');
+const _usersEl    = document.getElementById('users-panel');
+const _backdropEl = document.getElementById('drawer-backdrop');
+
+function _isMobile() { return _mql.matches; }
+
+function _closeDrawers() {
+    _sidebarEl.classList.remove('open');
+    _usersEl.classList.remove('open');
+    _backdropEl.classList.add('hidden');
+}
+
+function _openDrawer(el) {
+    // Only one drawer open at a time.
+    (el === _sidebarEl ? _usersEl : _sidebarEl).classList.remove('open');
+    el.classList.add('open');
+    _backdropEl.classList.remove('hidden');
+}
+
+function _toggleDrawer(el) {
+    if (el.classList.contains('open')) _closeDrawers();
+    else _openDrawer(el);
+}
+
+document.getElementById('btn-menu').addEventListener('click', () => _toggleDrawer(_sidebarEl));
+document.getElementById('btn-users').addEventListener('click', () => _toggleDrawer(_usersEl));
+_backdropEl.addEventListener('click', _closeDrawers);
+
+// If the viewport grows back to desktop, clear any open drawer state.
+_mql.addEventListener('change', (e) => { if (!e.matches) _closeDrawers(); });
 
 // Session helpers
 
