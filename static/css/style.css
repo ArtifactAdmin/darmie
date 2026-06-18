@@ -436,6 +436,55 @@ input  { font: inherit; color: inherit; }
 .video-tile.audio-only video   { display: none; }
 .video-tile.audio-only .tile-avatar { display: flex; }
 
+.video-tile video { cursor: pointer; }
+
+/* ─── Focus / spotlight mode ──────────────────────────────────────────────── */
+/* The focused stream fills its own row as a large stage; the others wrap below
+   it as a thumbnail strip. */
+#video-grid.has-focus {
+    display: flex;
+    flex-wrap: wrap;
+    align-content: flex-start;
+    max-height: 78vh;
+}
+#video-grid.has-focus .video-tile {
+    width: 124px;
+    flex: 0 0 auto;
+}
+#video-grid.has-focus .video-tile.focused {
+    order: -1;
+    width: 100%;
+    aspect-ratio: auto;
+    height: 60vh;
+}
+#video-grid.has-focus .video-tile.focused video {
+    object-fit: contain;
+    background: #000;
+}
+
+/* Per-user volume slider, revealed on hover like the fullscreen button. */
+.video-vol-ctrl {
+    position: absolute;
+    bottom: 8px;
+    right: 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(0,0,0,.65);
+    border-radius: 4px;
+    padding: 3px 8px;
+    opacity: 0;
+    transition: opacity .2s;
+    z-index: 10;
+}
+.video-tile:hover .video-vol-ctrl { opacity: 1; }
+.video-vol-icon { font-size: 12px; line-height: 1; }
+.video-vol {
+    width: 78px;
+    accent-color: var(--accent);
+    cursor: pointer;
+}
+
 .video-fs-btn {
     position: absolute;
     top: 8px;

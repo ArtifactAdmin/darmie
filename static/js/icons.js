@@ -73,6 +73,11 @@ export const ICONS = Object.freeze({
         <circle cx="9" cy="7" r="4"/>
         <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
         <path d="M16 3.13a4 4 0 0 1 0 7.75"/>`),
+
+    // Noise suppression (RNNoise): a "clean/enhance" sparkle.
+    noise: svg(`
+        <path d="M13 3l2.2 5.3L21 10.5l-5.8 2.2L13 18l-2.2-5.3L5 10.5l5.8-2.2z"/>
+        <path d="M5 16v3"/><path d="M3.5 17.5h3"/>`),
 });
 
 /**
