@@ -247,11 +247,44 @@ export const UI = {
             // and the audio-only avatar on its own — no extra signalling needed.
             video.addEventListener('resize', () => _syncTileMode(tile, stream));
 
-            tile.append(video, avatar, label, fsBtn);
+            // Click a stream to spotlight it in-app; click again to restore the grid.
+            video.title = 'Click to focus';
+            video.addEventListener('click', () => _focusTile(tile));
+
+            // Per-user volume slider (remote tiles only — you never hear yourself).
+            const extras = [];
+            if (!userId.startsWith('local')) {
+                const volCtrl = document.createElement('div');
+                volCtrl.className = 'video-vol-ctrl';
+
+                const volIcon = document.createElement('span');
+                volIcon.className = 'video-vol-icon';
+                volIcon.textContent = '🔊';
+
+                const vol = document.createElement('input');
+                vol.type      = 'range';
+                vol.min       = '0';
+                vol.max       = '1';
+                vol.step      = '0.05';
+                vol.value     = '1';
+                vol.className = 'video-vol';
+                vol.title     = 'Volume';
+                vol.addEventListener('input', () => {
+                    video.volume = Number(vol.value);
+                    volIcon.textContent = vol.value === '0' ? '🔇' : '🔊';
+                });
+
+                volCtrl.append(volIcon, vol);
+                extras.push(volCtrl);
+            }
+
+            tile.append(video, avatar, label, fsBtn, ...extras);
             grid.appendChild(tile);
         }
-        tile.querySelector('video').srcObject = stream;
+        const tileVideo = tile.querySelector('video');
+        tileVideo.srcObject = stream;
         _syncTileMode(tile, stream);
+        _playMedia(tileVideo);
     },
 
     removeVideoTile(userId) {
