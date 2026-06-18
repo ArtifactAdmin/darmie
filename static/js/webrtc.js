@@ -103,9 +103,20 @@ export class WebRTCManager {
 
     async handleAnswer(fromUserId, sdp) {
         const peer = this._peers[fromUserId];
-        if (!peer || peer.ignoreOffer) return;
-        await peer.pc.setRemoteDescription(sdp);
-        await this._flushPending(fromUserId);
+        if (!peer) return;
+        // Do NOT gate on peer.ignoreOffer here. ignoreOffer reflects the most
+        // recent *offer* we chose to drop during glare; gating answers on it
+        // discarded the answer to our own offer, so a track added under glare
+        // (e.g. turning the camera on while the peer renegotiates) never
+        // reached the other side. An answer is only valid in have-local-offer;
+        // in any other state it is stale, so skip it instead of throwing.
+        if (peer.pc.signalingState !== 'have-local-offer') return;
+        try {
+            await peer.pc.setRemoteDescription(sdp);
+            await this._flushPending(fromUserId);
+        } catch (err) {
+            console.warn('handleAnswer:', err);
+        }
     }
 
     async handleICECandidate(fromUserId, candidateInit) {

@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Darmie</title>
-    <link rel="stylesheet" href="/css/style.css?v=3">
+    <link rel="stylesheet" href="/css/style.css?v=5">
 </head>
 <body>
 
@@ -85,8 +85,8 @@
         <div class="sidebar-section">
             <div class="section-heading">
                 <span>Rooms</span>
-                <button id="create-room-btn" 
-                    class="icon-btn" title="Create room">+</button>
+                <button id="create-room-btn"
+                    class="icon-btn" title="Create room" data-icon="plus"></button>
             </div>
             <ul id="room-list"></ul>
         </div>
@@ -97,9 +97,9 @@
                 style="width:36px;height:36px;font-size:16px"></div>
             <span id="user-name" 
                 class="sidebar-username"></span>
-            <button id="logout-btn" 
-                class="icon-btn danger" 
-                title="Disconnect">⏻</button>
+            <button id="logout-btn"
+                class="icon-btn danger"
+                title="Disconnect" data-icon="power"></button>
         </div>
     </aside>
 
@@ -120,18 +120,18 @@
                     <span id="room-name-display"></span>
                 </div>
                 <div class="media-controls">
-                    <button id="btn-audio"  
-                        class="ctrl-btn" 
-                        title="Start microphone">🎙️</button>
-                    <button id="btn-video"  
-                        class="ctrl-btn" 
-                        title="Start camera">📹</button>
-                    <button id="btn-screen"  
-                        class="ctrl-btn" 
-                        title="Share screen">🖥️</button>
-                    <button id="btn-leave"  
-                        class="ctrl-btn danger" 
-                        title="Leave room">📴</button>
+                    <button id="btn-audio"
+                        class="ctrl-btn"
+                        title="Start microphone" data-icon="mic"></button>
+                    <button id="btn-video"
+                        class="ctrl-btn"
+                        title="Start camera" data-icon="camera"></button>
+                    <button id="btn-screen"
+                        class="ctrl-btn"
+                        title="Share screen" data-icon="screen"></button>
+                    <button id="btn-leave"
+                        class="ctrl-btn danger"
+                        title="Leave room" data-icon="leave"></button>
                 </div>
             </header>
 
@@ -144,7 +144,7 @@
             <!-- Input bar -->
             <div id="input-bar">
                 <label class="file-label" title="Send a file">
-                    📎
+                    <span data-icon="paperclip"></span>
                     <input type="file" id="file-input">
                 </label>
                 <input type="text"
@@ -186,6 +186,6 @@
 <!-- Toast container -->
 <div id="toasts"></div>
 
-<script type="module" src="/js/app.js?v=3"></script>
+<script type="module" src="/js/app.js?v=5"></script>
 </body>
 </html>

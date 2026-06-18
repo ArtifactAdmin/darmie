@@ -120,7 +120,7 @@ export class FileTransfer {
                     const blob = new Blob(chunks, { type: meta.mimeType });
                     const url  = URL.createObjectURL(blob);
                     if (this.onFileReceived) {
-                        this.onFileReceived(fromUserId, meta.name, url, meta.size);
+                        this.onFileReceived(fromUserId, meta.name, url, meta.size, meta.mimeType);
                     }
                     meta = null;
                     chunks.length = 0;

@@ -1,8 +1,10 @@
 /** Protocol message type constants (mirrors internal/protocol/protocol.go). */
 export const MSG = Object.freeze({
-    // Client 
+    // Client
     REGISTER:      'register',
     LOGIN:         'login',
+    RESUME:        'resume',
+    LOGOUT:        'logout',
     LIST_ROOMS:    'list_rooms',
     CREATE_ROOM:   'create_room',
     JOIN_ROOM:     'join_room',

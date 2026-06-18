@@ -39,6 +39,13 @@ input  { font: inherit; color: inherit; }
 /* ─── Utilities ──────────────────────────────────────────────────────────── */
 .hidden { display: none !important; }
 
+/* Inline SVG icons inherit button colour and are sized by their container. */
+.ctrl-btn svg,
+.file-label svg { width: 19px; height: 19px; display: block; }
+.icon-btn svg   { width: 16px; height: 16px; display: block; }
+.video-fs-btn svg { width: 15px; height: 15px; display: block; }
+.file-label span { display: flex; align-items: center; justify-content: center; }
+
 /* ═══════════════════════════════════════════════════════════════════════════
    AUTH SCREEN
 ═══════════════════════════════════════════════════════════════════════════ */
@@ -536,6 +543,22 @@ input  { font: inherit; color: inherit; }
 
 .file-link { font-size: 13px; font-weight: 500; }
 .file-size { font-size: 11px; color: var(--txt1); }
+
+.file-thumb {
+    display: block;
+    margin-top: 6px;
+    max-width: 320px;
+    max-height: 240px;
+    width: auto;
+    height: auto;
+    border-radius: var(--radius);
+    border: 1px solid var(--bg3);
+    background: var(--bg2);
+    object-fit: contain;
+    cursor: pointer;
+    transition: filter .15s;
+}
+.file-thumb:hover { filter: brightness(1.08); }
 
 /* ─── Input bar ──────────────────────────────────────────────────────────── */
 #input-bar {

@@ -3,25 +3,29 @@
  * Wires together the WebSocket, WebRTC, FileTransfer, and UI modules.
  */
 
-import { MSG }          from './protocol.js?v=3';
-import { WSManager }    from './ws.js?v=3';
-import { WebRTCManager} from './webrtc.js?v=3';
-import { FileTransfer } from './filetransfer.js?v=3';
-import { UI }           from './ui.js?v=3';
+import { MSG }            from './protocol.js?v=5';
+import { WSManager }      from './ws.js?v=5';
+import { WebRTCManager}   from './webrtc.js?v=5';
+import { FileTransfer }   from './filetransfer.js?v=5';
+import { UI }             from './ui.js?v=5';
+import { ICONS, applyIcons } from './icons.js?v=5';
 
-// Application state 
+// Key under which the resumable session token is persisted across reloads.
+const SESSION_KEY = 'darmie_session';
+
+// Application state
 
 const state = {
-    userId:      null,
-    username:    null,
-    uploadToken: null,  // per-session token for HTTP file uploads
-    rooms:       [],       // RoomInfo[]
-    currentRoom: null,     // { id, name } | null
-    roomUsers:   [],       // UserInfo[]
-    hasAudio:    false,
-    audioMuted:  false,
-    hasVideo:    false,
-    hasScreen:   false,
+    userId:       null,
+    username:     null,
+    sessionToken: null,  // persisted session token; also the upload credential
+    rooms:        [],       // RoomInfo[]
+    currentRoom:  null,     // { id, name } | null
+    roomUsers:    [],       // UserInfo[]
+    hasAudio:     false,
+    audioMuted:   false,
+    hasVideo:     false,
+    hasScreen:    false,
 };
 
 // Module instances 
@@ -47,9 +51,9 @@ webrtc.onConnectionState = (userId, connState) => {
 
 // File transfer callbacks 
 
-fileTransfer.onFileReceived = (fromUserId, name, url, size) => {
+fileTransfer.onFileReceived = (fromUserId, name, url, size, mimeType) => {
     const user = state.roomUsers.find(u => u.id === fromUserId);
-    UI.addFileMessage({ fromUsername: user?.username ?? fromUserId, filename: name, url, size });
+    UI.addFileMessage({ fromUsername: user?.username ?? fromUserId, filename: name, url, size, mimeType });
 };
 
 fileTransfer.onProgress = (_userId, fraction) => {
@@ -59,15 +63,30 @@ fileTransfer.onProgress = (_userId, fraction) => {
 // WebSocket message handlers
 
 ws.on(MSG.AUTH_SUCCESS, (p) => {
-    state.userId      = p.user_id;
-    state.username    = p.username;
-    state.uploadToken = p.upload_token;
+    state.userId       = p.user_id;
+    state.username     = p.username;
+    state.sessionToken = p.session_token;
+    // Persist the token so a page reload or dropped connection can resume the
+    // session silently instead of forcing the user to sign in again.
+    try { localStorage.setItem(SESSION_KEY, p.session_token); } catch { /* private mode */ }
     webrtc.init(p.user_id);
     UI.showApp(p.username);
     ws.send(MSG.LIST_ROOMS);
 });
 
-ws.on(MSG.AUTH_ERROR, (p) => UI.setAuthError(p.message));
+ws.on(MSG.AUTH_ERROR, (p) => {
+    // A failed login/register, or a stale session token that no longer resumes.
+    // Drop the token and fall back to the auth screen either way.
+    _clearSession();
+    if (state.userId) {
+        _resetRoom();
+        state.userId   = null;
+        state.username = null;
+        state.rooms    = [];
+        UI.showAuth();
+    }
+    UI.setAuthError(p.message);
+});
 
 ws.on(MSG.ROOM_LIST, (p) => {
     state.rooms = p.rooms;
@@ -81,6 +100,15 @@ ws.on(MSG.ROOM_CREATED, (p) => {
 });
 
 ws.on(MSG.ROOM_JOINED, (p) => {
+    // Entering a room (possibly switching from another). Tear down the previous
+    // room's peer connections and local media FIRST so audio/video/screen never
+    // leak across channels — each channel is its own call. The server already
+    // removed us from the old room (single-room invariant); this mirrors that on
+    // the client. On a first join these are no-ops.
+    webrtc.closeAll();
+    _resetMediaState();
+    UI.clearVideoGrid();
+
     state.currentRoom = { id: p.room.id, name: p.room.name };
     state.roomUsers   = [...p.users];
 
@@ -101,6 +129,7 @@ ws.on(MSG.ROOM_JOINED, (p) => {
                     filename:     entry.filename,
                     url:          entry.url,
                     size:         entry.size,
+                    mimeType:     entry.mime_type,
                     isSelf:       entry.from_user_id === state.userId,
                 });
             } else {
@@ -166,6 +195,7 @@ ws.on(MSG.FILE_MESSAGE, (p) => {
         filename:     p.filename,
         url:          p.url,
         size:         p.size,
+        mimeType:     p.mime_type,
         isSelf:       p.from_user_id === state.userId,
     });
 });
@@ -218,7 +248,7 @@ function _resetMediaState() {
     state.hasScreen         = false;
     _screenAutoStartedAudio = false;
     const audioBtn = document.getElementById('btn-audio');
-    audioBtn.textContent = '🎙️';
+    audioBtn.innerHTML = ICONS.mic;
     audioBtn.title = 'Start microphone';
     audioBtn.classList.remove('muted');
     UI.setMediaBtn('btn-audio',  false);
@@ -271,11 +301,15 @@ function _doRegister() {
 // Event: logout
 
 document.getElementById('logout-btn').addEventListener('click', () => {
+    // Invalidate the session server-side so the token can never be resumed,
+    // then forget it locally before tearing down the socket.
+    ws.send(MSG.LOGOUT);
+    _clearSession();
     _resetRoom();
-    state.userId      = null;
-    state.username    = null;
-    state.uploadToken = null;
-    state.rooms       = [];
+    state.userId       = null;
+    state.username     = null;
+    state.sessionToken = null;
+    state.rooms        = [];
     ws.close();
     UI.showAuth();
     setTimeout(_connectWS, 100);
@@ -337,10 +371,10 @@ document.getElementById('btn-audio').addEventListener('click', async () => {
 });
 
 // Reflect mic state on the button: live mic vs muted is shown by the icon
-// (🎙️ / 🔇), a red "muted" style, and the title — so muting is unmistakable.
+// (mic / mic-off), a red "muted" style, and the title — so muting is unmistakable.
 function _reflectAudioState() {
     const btn = document.getElementById('btn-audio');
-    btn.textContent = state.audioMuted ? '🔇' : '🎙️';
+    btn.innerHTML = state.audioMuted ? ICONS.micOff : ICONS.mic;
     btn.title       = state.audioMuted ? 'Unmute microphone' : 'Mute microphone';
     btn.classList.toggle('muted', state.audioMuted);
     UI.setMediaBtn('btn-audio', state.hasAudio && !state.audioMuted);
@@ -444,7 +478,7 @@ document.getElementById('file-input').addEventListener('change', async e => {
     e.target.value = '';
     if (!file || !state.currentRoom) return;
 
-    const url = `/upload?token=${encodeURIComponent(state.uploadToken)}&room_id=${encodeURIComponent(state.currentRoom.id)}`;
+    const url = `/upload?token=${encodeURIComponent(state.sessionToken)}&room_id=${encodeURIComponent(state.currentRoom.id)}`;
     const body = new FormData();
     body.append('file', file);
 
@@ -462,17 +496,30 @@ document.getElementById('file-input').addEventListener('change', async e => {
     }
 });
 
-// Bootstrap 
+// Session helpers
+
+function _clearSession() {
+    try { localStorage.removeItem(SESSION_KEY); } catch { /* private mode */ }
+}
+
+// Bootstrap
 
 async function _connectWS() {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const url   = `${proto}//${location.host}/ws`;
     try {
         await ws.connect(url);
+        // If we hold a persisted session, resume it silently. The server replies
+        // with auth_success (→ app) or auth_error (→ token cleared, auth screen).
+        let token = null;
+        try { token = localStorage.getItem(SESSION_KEY); } catch { /* private mode */ }
+        if (token) ws.send(MSG.RESUME, { session_token: token });
     } catch {
         UI.toast('Cannot reach server — retrying in 5s…', 'error');
         setTimeout(_connectWS, 5000);
     }
 }
 
+// Paint the SVG icon set, then open the connection.
+applyIcons();
 _connectWS();
