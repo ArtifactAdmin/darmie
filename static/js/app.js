@@ -241,6 +241,7 @@ function _joinRoom(roomId) {
 function _resetRoom() {
     webrtc.closeAll();
     _resetMediaState();
+    _clearUploadPreview();
     state.currentRoom = null;
     state.roomUsers   = [];
     UI.hideRoom();
@@ -506,10 +507,36 @@ function _sendMessage() {
 
 // Event: file send — upload to server via HTTP POST
 
+let _uploadPreviewUrl = null;
+
+function _showUploadPreview(file) {
+    _uploadPreviewUrl = URL.createObjectURL(file);
+    const img   = document.getElementById('upload-preview-img');
+    const panel = document.getElementById('upload-preview');
+    img.src = _uploadPreviewUrl;
+    img.alt = file.name;
+    panel.classList.remove('hidden');
+}
+
+function _clearUploadPreview() {
+    const panel = document.getElementById('upload-preview');
+    const img   = document.getElementById('upload-preview-img');
+    panel.classList.add('hidden');
+    img.src = '';
+    if (_uploadPreviewUrl) {
+        URL.revokeObjectURL(_uploadPreviewUrl);
+        _uploadPreviewUrl = null;
+    }
+}
+
 document.getElementById('file-input').addEventListener('change', async e => {
     const file = e.target.files[0];
     e.target.value = '';
     if (!file || !state.currentRoom) return;
+
+    if (file.type.startsWith('image/')) {
+        _showUploadPreview(file);
+    }
 
     const url = `/upload?token=${encodeURIComponent(state.sessionToken)}&room_id=${encodeURIComponent(state.currentRoom.id)}`;
     const body = new FormData();
@@ -526,6 +553,8 @@ document.getElementById('file-input').addEventListener('change', async e => {
         // so the file appears in chat automatically — no extra UI call needed.
     } catch (err) {
         UI.toast('Upload error: ' + err.message, 'error');
+    } finally {
+        _clearUploadPreview();
     }
 });
 
