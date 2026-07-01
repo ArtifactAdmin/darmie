@@ -2,4 +2,4 @@
 set -e
 
 docker build -t darmie .
-docker run --rm -d -p 8080:8080 darmie
+docker run --rm -d -p 8080:8080 -v /home/g/Desktop/darmie:/app darmie
