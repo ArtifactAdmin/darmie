@@ -4,7 +4,7 @@
  * to prevent XSS.
  */
 
-import { ICONS } from './icons.js?v=8';
+import { ICONS } from './icons.js?v=9';
 
 export const UI = {
     // 
@@ -142,6 +142,24 @@ export const UI = {
         txt.textContent = content; // textContent — no XSS risk
 
         body.append(hdr, txt);
+
+        // YouTube embeds — rendered for every video ID found in the message text
+        for (const videoId of _extractYouTubeIds(content)) {
+            const wrap = document.createElement('div');
+            wrap.className = 'yt-embed-wrap';
+
+            const iframe = document.createElement('iframe');
+            iframe.className  = 'yt-embed';
+            iframe.src        = `https://www.youtube.com/embed/${videoId}`;
+            iframe.title      = 'YouTube video';
+            iframe.loading    = 'lazy';
+            iframe.allow      = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share';
+            iframe.allowFullscreen = true;
+
+            wrap.appendChild(iframe);
+            body.appendChild(wrap);
+        }
+
         div.append(av, body);
         messages.appendChild(div);
         messages.scrollTop = messages.scrollHeight;
@@ -487,4 +505,23 @@ function _fmtBytes(bytes) {
     if (bytes < 1024)        return bytes + ' B';
     if (bytes < 1_048_576)   return (bytes / 1024).toFixed(1) + ' KB';
     return (bytes / 1_048_576).toFixed(1) + ' MB';
+}
+
+/**
+ * Extract unique YouTube video IDs from a string.
+ * Handles youtube.com/watch?v=, youtu.be/, youtube.com/shorts/, and /embed/ URLs.
+ * Returns at most 3 IDs to prevent embed spam.
+ */
+function _extractYouTubeIds(text) {
+    const seen = new Set();
+    const ids  = [];
+    const re   = /(?:youtube\.com\/(?:watch\?(?:[^\s&]*&)*v=|embed\/|shorts\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/g;
+    let m;
+    while ((m = re.exec(text)) !== null && ids.length < 3) {
+        if (!seen.has(m[1])) {
+            seen.add(m[1]);
+            ids.push(m[1]);
+        }
+    }
+    return ids;
 }

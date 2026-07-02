@@ -3,12 +3,12 @@
  * Wires together the WebSocket, WebRTC, FileTransfer, and UI modules.
  */
 
-import { MSG }            from './protocol.js?v=8';
-import { WSManager }      from './ws.js?v=8';
-import { WebRTCManager}   from './webrtc.js?v=8';
-import { FileTransfer }   from './filetransfer.js?v=8';
-import { UI }             from './ui.js?v=8';
-import { ICONS, applyIcons } from './icons.js?v=8';
+import { MSG }            from './protocol.js?v=9';
+import { WSManager }      from './ws.js?v=9';
+import { WebRTCManager}   from './webrtc.js?v=9';
+import { FileTransfer }   from './filetransfer.js?v=9';
+import { UI }             from './ui.js?v=9';
+import { ICONS, applyIcons } from './icons.js?v=9';
 
 // Key under which the resumable session token is persisted across reloads.
 const SESSION_KEY = 'darmie_session';
