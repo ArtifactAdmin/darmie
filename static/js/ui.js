@@ -4,7 +4,7 @@
  * to prevent XSS.
  */
 
-import { ICONS } from './icons.js?v=7';
+import { ICONS } from './icons.js?v=8';
 
 export const UI = {
     // 
@@ -206,6 +206,27 @@ export const UI = {
 
             thumbLink.appendChild(img);
             body.appendChild(thumbLink);
+        }
+
+        // Inline audio player
+        if (_isAudio(mimeType, filename)) {
+            const audio = document.createElement('audio');
+            audio.controls  = true;
+            audio.preload   = 'metadata';
+            audio.src       = url;
+            audio.className = 'file-audio';
+            body.appendChild(audio);
+        }
+
+        // Inline video player
+        if (_isVideo(mimeType, filename)) {
+            const video = document.createElement('video');
+            video.controls   = true;
+            video.preload    = 'metadata';
+            video.playsInline = true;
+            video.src        = url;
+            video.className  = 'file-video';
+            body.appendChild(video);
         }
 
         div.append(av, body);
@@ -448,6 +469,18 @@ function _fmtTime(tsMs) {
 function _isImage(mimeType, filename) {
     if (mimeType && mimeType.startsWith('image/')) return true;
     return /\.(png|jpe?g|gif|webp|bmp|svg|avif)$/i.test(filename || '');
+}
+
+/** Heuristic: is this attachment an audio file? */
+function _isAudio(mimeType, filename) {
+    if (mimeType && mimeType.startsWith('audio/')) return true;
+    return /\.(mp3|wav|ogg|flac|aac|m4a|opus|weba)$/i.test(filename || '');
+}
+
+/** Heuristic: is this attachment a video file? */
+function _isVideo(mimeType, filename) {
+    if (mimeType && mimeType.startsWith('video/')) return true;
+    return /\.(mp4|webm|ogv|mov|avi|mkv|m4v)$/i.test(filename || '');
 }
 
 function _fmtBytes(bytes) {

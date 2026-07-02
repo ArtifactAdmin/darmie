@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Darmie</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-    <link rel="stylesheet" href="/css/style.css?v=7">
+    <link rel="stylesheet" href="/css/style.css?v=8">
 </head>
 <body>
 
@@ -151,9 +151,11 @@
             <!-- Chat messages -->
             <div id="messages"></div>
 
-            <!-- Image upload preview (shown when an image file is selected) -->
+            <!-- Upload preview (image/audio/video shown while a file is being uploaded) -->
             <div id="upload-preview" class="hidden">
-                <img id="upload-preview-img" class="upload-preview-img" alt="">
+                <img id="upload-preview-img" class="upload-preview-img hidden" alt="">
+                <audio id="upload-preview-audio" class="upload-preview-audio hidden" controls></audio>
+                <video id="upload-preview-video" class="upload-preview-video hidden" controls muted playsinline></video>
             </div>
 
             <!-- Input bar -->
@@ -204,6 +206,6 @@
 <!-- Toast container -->
 <div id="toasts"></div>
 
-<script type="module" src="/js/app.js?v=7"></script>
+<script type="module" src="/js/app.js?v=8"></script>
 </body>
 </html>

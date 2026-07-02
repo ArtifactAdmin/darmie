@@ -52,7 +52,7 @@ func (s *Storage) Save(id string, r io.Reader) (int64, error) {
 	return n, nil
 }
 
-func (s *Storage) Open(id string) (io.ReadCloser, error) {
+func (s *Storage) Open(id string) (io.ReadSeekCloser, error) {
 	p, ok := s.path(id)
 	if !ok {
 		return nil, os.ErrNotExist

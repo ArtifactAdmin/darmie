@@ -48,8 +48,10 @@ type FileRepository interface {
 type FileStorage interface {
 	// Save streams r into the blob identified by id and returns the byte count.
 	Save(id string, r io.Reader) (int64, error)
-	// Open returns a reader for the stored blob; the caller must close it.
-	Open(id string) (io.ReadCloser, error)
+	// Open returns a seekable reader for the stored blob; the caller must close
+	// it. Seeking is required so HTTP range requests (partial content) work for
+	// audio and video files.
+	Open(id string) (io.ReadSeekCloser, error)
 	// Remove deletes the stored blob, used to roll back a failed upload.
 	Remove(id string) error
 }

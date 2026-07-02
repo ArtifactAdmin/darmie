@@ -2,12 +2,11 @@ package ws
 
 import (
 	"encoding/json"
-	"io"
 	"log"
 	"net/http"
 	"path/filepath"
-	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -106,7 +105,8 @@ func (h *Hub) HandleUpload(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]string{"url": fileURL})
 }
 
-// HandleFileDownload serves an uploaded file by its ID.
+// HandleFileDownload serves an uploaded file by its ID, with full support for
+// HTTP range requests so browsers can seek through audio and video files.
 //
 //	GET /files/<fileID>
 func (h *Hub) HandleFileDownload(w http.ResponseWriter, r *http.Request) {
@@ -123,10 +123,19 @@ func (h *Hub) HandleFileDownload(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rc.Close()
 
+	// Serve audio, video, and images inline so the browser can play/display
+	// them directly; all other types are forced to download.
+	disposition := "attachment"
+	mt := rec.MimeType
+	if strings.HasPrefix(mt, "audio/") || strings.HasPrefix(mt, "video/") || strings.HasPrefix(mt, "image/") {
+		disposition = "inline"
+	}
 	w.Header().Set("Content-Type", rec.MimeType)
-	w.Header().Set("Content-Disposition", `attachment; filename="`+sanitizeFilename(rec.Filename)+`"`)
-	w.Header().Set("Content-Length", strconv.FormatInt(rec.Size, 10))
-	_, _ = io.Copy(w, rc)
+	w.Header().Set("Content-Disposition", disposition+`; filename="`+sanitizeFilename(rec.Filename)+`"`)
+
+	// ServeContent handles Accept-Ranges, Content-Length, 206 Partial Content,
+	// and conditional GET automatically — essential for audio/video seeking.
+	http.ServeContent(w, r, rec.Filename, time.UnixMilli(rec.Timestamp), rc)
 }
 
 // jsonErr writes a JSON {"error":"..."} response.

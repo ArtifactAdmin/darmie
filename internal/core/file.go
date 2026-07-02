@@ -42,9 +42,9 @@ func (s *FileService) Save(f domain.File, r io.Reader) (domain.File, error) {
 	return f, nil
 }
 
-// Open returns the metadata and a byte stream for a stored file. The caller
-// must close the returned reader.
-func (s *FileService) Open(id string) (*domain.File, io.ReadCloser, error) {
+// Open returns the metadata and a seekable byte stream for a stored file. The
+// caller must close the returned reader.
+func (s *FileService) Open(id string) (*domain.File, io.ReadSeekCloser, error) {
 	rec, err := s.files.Get(id)
 	if err != nil {
 		return nil, nil, err

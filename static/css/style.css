@@ -624,6 +624,26 @@ input  { font: inherit; color: inherit; }
 }
 .file-thumb:hover { filter: brightness(1.08); }
 
+.file-audio {
+    display: block;
+    margin-top: 6px;
+    width: 100%;
+    max-width: 360px;
+    border-radius: var(--radius);
+}
+
+.file-video {
+    display: block;
+    margin-top: 6px;
+    max-width: 360px;
+    max-height: 240px;
+    width: 100%;
+    height: auto;
+    border-radius: var(--radius);
+    border: 1px solid var(--bg3);
+    background: #000;
+}
+
 /* ─── Upload preview ─────────────────────────────────────────────────────── */
 #upload-preview {
     display: flex;
@@ -643,6 +663,25 @@ input  { font: inherit; color: inherit; }
     border-radius: var(--radius);
     border: 1px solid var(--bg3);
     background: var(--bg2);
+    object-fit: contain;
+    opacity: 0.85;
+    animation: upload-preview-fade-in .15s ease;
+}
+
+.upload-preview-audio {
+    max-width: 320px;
+    opacity: 0.85;
+    animation: upload-preview-fade-in .15s ease;
+}
+
+.upload-preview-video {
+    max-width: 240px;
+    max-height: 160px;
+    width: auto;
+    height: auto;
+    border-radius: var(--radius);
+    border: 1px solid var(--bg3);
+    background: #000;
     object-fit: contain;
     opacity: 0.85;
     animation: upload-preview-fade-in .15s ease;

@@ -3,12 +3,12 @@
  * Wires together the WebSocket, WebRTC, FileTransfer, and UI modules.
  */
 
-import { MSG }            from './protocol.js?v=7';
-import { WSManager }      from './ws.js?v=7';
-import { WebRTCManager}   from './webrtc.js?v=7';
-import { FileTransfer }   from './filetransfer.js?v=7';
-import { UI }             from './ui.js?v=7';
-import { ICONS, applyIcons } from './icons.js?v=7';
+import { MSG }            from './protocol.js?v=8';
+import { WSManager }      from './ws.js?v=8';
+import { WebRTCManager}   from './webrtc.js?v=8';
+import { FileTransfer }   from './filetransfer.js?v=8';
+import { UI }             from './ui.js?v=8';
+import { ICONS, applyIcons } from './icons.js?v=8';
 
 // Key under which the resumable session token is persisted across reloads.
 const SESSION_KEY = 'darmie_session';
@@ -511,18 +511,39 @@ let _uploadPreviewUrl = null;
 
 function _showUploadPreview(file) {
     _uploadPreviewUrl = URL.createObjectURL(file);
-    const img   = document.getElementById('upload-preview-img');
     const panel = document.getElementById('upload-preview');
-    img.src = _uploadPreviewUrl;
-    img.alt = file.name;
+    const img   = document.getElementById('upload-preview-img');
+    const audio = document.getElementById('upload-preview-audio');
+    const video = document.getElementById('upload-preview-video');
+
+    img.classList.add('hidden');   img.src   = '';
+    audio.classList.add('hidden'); audio.src = '';
+    video.classList.add('hidden'); video.src = '';
+
+    if (file.type.startsWith('image/')) {
+        img.src = _uploadPreviewUrl;
+        img.alt = file.name;
+        img.classList.remove('hidden');
+    } else if (file.type.startsWith('audio/')) {
+        audio.src = _uploadPreviewUrl;
+        audio.classList.remove('hidden');
+    } else if (file.type.startsWith('video/')) {
+        video.src = _uploadPreviewUrl;
+        video.classList.remove('hidden');
+    }
+
     panel.classList.remove('hidden');
 }
 
 function _clearUploadPreview() {
     const panel = document.getElementById('upload-preview');
     const img   = document.getElementById('upload-preview-img');
+    const audio = document.getElementById('upload-preview-audio');
+    const video = document.getElementById('upload-preview-video');
     panel.classList.add('hidden');
     img.src = '';
+    audio.src = '';
+    video.src = '';
     if (_uploadPreviewUrl) {
         URL.revokeObjectURL(_uploadPreviewUrl);
         _uploadPreviewUrl = null;
@@ -534,7 +555,7 @@ document.getElementById('file-input').addEventListener('change', async e => {
     e.target.value = '';
     if (!file || !state.currentRoom) return;
 
-    if (file.type.startsWith('image/')) {
+    if (file.type.startsWith('image/') || file.type.startsWith('audio/') || file.type.startsWith('video/')) {
         _showUploadPreview(file);
     }
 
