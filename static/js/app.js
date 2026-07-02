@@ -3,12 +3,12 @@
  * Wires together the WebSocket, WebRTC, FileTransfer, and UI modules.
  */
 
-import { MSG }            from './protocol.js?v=9';
-import { WSManager }      from './ws.js?v=9';
-import { WebRTCManager}   from './webrtc.js?v=9';
-import { FileTransfer }   from './filetransfer.js?v=9';
-import { UI }             from './ui.js?v=9';
-import { ICONS, applyIcons } from './icons.js?v=9';
+import { MSG }            from './protocol.js?v=10';
+import { WSManager }      from './ws.js?v=10';
+import { WebRTCManager}   from './webrtc.js?v=10';
+import { FileTransfer }   from './filetransfer.js?v=10';
+import { UI }             from './ui.js?v=10';
+import { ICONS, applyIcons } from './icons.js?v=10';
 
 // Key under which the resumable session token is persisted across reloads.
 const SESSION_KEY = 'darmie_session';
@@ -550,9 +550,7 @@ function _clearUploadPreview() {
     }
 }
 
-document.getElementById('file-input').addEventListener('change', async e => {
-    const file = e.target.files[0];
-    e.target.value = '';
+async function _uploadFile(file) {
     if (!file || !state.currentRoom) return;
 
     if (file.type.startsWith('image/') || file.type.startsWith('audio/') || file.type.startsWith('video/')) {
@@ -560,12 +558,12 @@ document.getElementById('file-input').addEventListener('change', async e => {
     }
 
     const url = `/upload?token=${encodeURIComponent(state.sessionToken)}&room_id=${encodeURIComponent(state.currentRoom.id)}`;
-    const body = new FormData();
-    body.append('file', file);
+    const fd  = new FormData();
+    fd.append('file', file);
 
     UI.toast(`Uploading "${file.name}"…`, 'info');
     try {
-        const res = await fetch(url, { method: 'POST', body });
+        const res = await fetch(url, { method: 'POST', body: fd });
         if (!res.ok) {
             const data = await res.json().catch(() => ({}));
             UI.toast(data.error || 'Upload failed', 'error');
@@ -577,6 +575,48 @@ document.getElementById('file-input').addEventListener('change', async e => {
     } finally {
         _clearUploadPreview();
     }
+}
+
+document.getElementById('file-input').addEventListener('change', e => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    _uploadFile(file);
+});
+
+// Drag-and-drop upload — accepts files dropped anywhere on the room view.
+
+const _roomViewEl  = document.getElementById('room-view');
+const _dropOverlay = document.getElementById('drop-overlay');
+let   _dragDepth   = 0;
+
+function _hasDragFiles(e) {
+    return e.dataTransfer?.types?.includes('Files');
+}
+
+_roomViewEl.addEventListener('dragenter', e => {
+    if (!_hasDragFiles(e)) return;
+    e.preventDefault();
+    _dragDepth++;
+    if (_dragDepth === 1) _dropOverlay.classList.remove('hidden');
+});
+
+_roomViewEl.addEventListener('dragleave', () => {
+    _dragDepth = Math.max(0, _dragDepth - 1);
+    if (_dragDepth === 0) _dropOverlay.classList.add('hidden');
+});
+
+_roomViewEl.addEventListener('dragover', e => {
+    if (!_hasDragFiles(e)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+});
+
+_roomViewEl.addEventListener('drop', e => {
+    e.preventDefault();
+    _dragDepth = 0;
+    _dropOverlay.classList.add('hidden');
+    if (!state.currentRoom) return;
+    [...e.dataTransfer.files].forEach(_uploadFile);
 });
 
 // Mobile drawers — the sidebar (rooms) and users panel slide in over a backdrop

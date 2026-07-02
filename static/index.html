@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Darmie</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-    <link rel="stylesheet" href="/css/style.css?v=9">
+    <link rel="stylesheet" href="/css/style.css?v=10">
 </head>
 <body>
 
@@ -114,6 +114,18 @@
 
         <div id="room-view" class="hidden">
 
+            <!-- Drop overlay — visible while a file is dragged over the chat area -->
+            <div id="drop-overlay" class="hidden" aria-hidden="true">
+                <div class="drop-overlay-inner">
+                    <svg class="drop-overlay-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                        <polyline points="17 8 12 3 7 8"/>
+                        <line x1="12" y1="3" x2="12" y2="15"/>
+                    </svg>
+                    <span>Drop to upload</span>
+                </div>
+            </div>
+
             <!-- Top bar -->
             <header id="top-bar">
                 <button id="btn-menu"
@@ -206,6 +218,6 @@
 <!-- Toast container -->
 <div id="toasts"></div>
 
-<script type="module" src="/js/app.js?v=9"></script>
+<script type="module" src="/js/app.js?v=10"></script>
 </body>
 </html>

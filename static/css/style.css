@@ -337,6 +337,41 @@ input  { font: inherit; color: inherit; }
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    position: relative; /* anchor for the drop overlay */
+}
+
+/* ─── Top bar ────────────────────────────────────────────────────────────── */
+
+/* ─── Drag-and-drop overlay ──────────────────────────────────────────────── */
+#drop-overlay {
+    position: absolute;
+    inset: 8px;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(88, 166, 255, 0.08);
+    border: 2px dashed var(--accent);
+    border-radius: var(--radius-lg);
+    pointer-events: none; /* let drag events pass through to #room-view */
+}
+
+.drop-overlay-inner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    color: var(--accent);
+    font-size: 15px;
+    font-weight: 600;
+    pointer-events: none;
+}
+
+.drop-overlay-icon {
+    width: 52px;
+    height: 52px;
+    stroke: var(--accent);
+    opacity: 0.9;
 }
 
 /* ─── Top bar ────────────────────────────────────────────────────────────── */
