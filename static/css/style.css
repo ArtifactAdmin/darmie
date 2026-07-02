@@ -594,7 +594,7 @@ input  { font: inherit; color: inherit; }
 }
 
 .msg-file {
-    display: none;
+    display: flex;
     align-items: center;
     gap: 4px;
     padding: 6px 10px;
