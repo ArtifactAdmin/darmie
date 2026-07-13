@@ -15,6 +15,7 @@ const SESSION_KEY = 'darmie_session';
 
 // Application state
 
+
 const state = {
     userId:       null,
     username:     null,
