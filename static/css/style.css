@@ -758,7 +758,55 @@ input  { font: inherit; color: inherit; }
     max-width: 200px;
 }
 
-/* ─── Input bar ──────────────────────────────────────────────────────────── */
+/* ─── Upload progress bar ────────────────────────────────────────────────── */
+#upload-progress {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 6px;
+    min-width: 180px;
+    flex: 1;
+}
+
+.upload-progress-info {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.upload-progress-name {
+    font-size: 12px;
+    color: var(--txt0);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+}
+
+.upload-progress-pct {
+    font-size: 12px;
+    color: var(--txt1);
+    flex-shrink: 0;
+    font-variant-numeric: tabular-nums;
+}
+
+.upload-progress-track {
+    height: 4px;
+    background: var(--bg3);
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.upload-progress-fill {
+    height: 100%;
+    width: 0%;
+    background: var(--accent);
+    border-radius: 2px;
+    transition: width .1s linear;
+}
+
+
 #input-bar {
     display: flex;
     align-items: center;

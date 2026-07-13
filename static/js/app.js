@@ -562,18 +562,39 @@ async function _uploadFile(file) {
     const fd  = new FormData();
     fd.append('file', file);
 
-    UI.toast(`Uploading "${file.name}"…`, 'info');
+    UI.showUploadProgress(file.name);
     try {
-        const res = await fetch(url, { method: 'POST', body: fd });
-        if (!res.ok) {
-            const data = await res.json().catch(() => ({}));
-            UI.toast(data.error || 'Upload failed', 'error');
-        }
+        await new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', url);
+
+            xhr.upload.addEventListener('progress', (e) => {
+                if (e.lengthComputable) {
+                    UI.updateUploadProgress(e.loaded / e.total);
+                }
+            });
+
+            xhr.addEventListener('load', () => {
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    resolve();
+                } else {
+                    let data = {};
+                    try { data = JSON.parse(xhr.responseText); } catch { /* ignore */ }
+                    reject(new Error(data.error || 'Upload failed'));
+                }
+            });
+
+            xhr.addEventListener('error', () => reject(new Error('Upload error')));
+            xhr.addEventListener('abort', () => reject(new Error('Upload aborted')));
+
+            xhr.send(fd);
+        });
         // On success the server broadcasts file_message to the room,
         // so the file appears in chat automatically — no extra UI call needed.
     } catch (err) {
-        UI.toast('Upload error: ' + err.message, 'error');
+        UI.toast(err.message, 'error');
     } finally {
+        UI.hideUploadProgress();
         _clearUploadPreview();
     }
 }

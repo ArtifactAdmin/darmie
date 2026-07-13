@@ -18,10 +18,10 @@ import (
 )
 
 const (
-	maxRoomSize    = 12        // cap for mesh-topology rooms
-	maxRooms       = 100       // prevent unbounded room growth
-	maxHistory     = 200       // messages kept/replayed per room
-	maxUploadBytes = 100 << 20 // 100 MB per file
+	maxRoomSize    = 12      // cap for mesh-topology rooms
+	maxRooms       = 100     // prevent unbounded room growth
+	maxHistory     = 200     // messages kept/replayed per room
+	maxUploadBytes = 5 << 30 // 5 GB per file
 )
 
 func main() {

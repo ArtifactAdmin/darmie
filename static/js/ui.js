@@ -381,6 +381,28 @@ export const UI = {
     },
 
     // 
+    // Upload progress bar
+    // 
+
+    showUploadProgress(filename) {
+        document.getElementById('upload-progress-name').textContent = filename;
+        document.getElementById('upload-progress-pct').textContent = '0%';
+        document.getElementById('upload-progress-fill').style.width = '0%';
+        document.getElementById('upload-progress').classList.remove('hidden');
+        document.getElementById('upload-preview').classList.remove('hidden');
+    },
+
+    updateUploadProgress(fraction) {
+        const pct = Math.round(fraction * 100);
+        document.getElementById('upload-progress-pct').textContent = pct + '%';
+        document.getElementById('upload-progress-fill').style.width = pct + '%';
+    },
+
+    hideUploadProgress() {
+        document.getElementById('upload-progress').classList.add('hidden');
+    },
+
+    // 
     // Toast notifications
     // 
 
