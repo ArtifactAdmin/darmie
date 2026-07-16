@@ -114,13 +114,14 @@ ws.on(MSG.ROOM_JOINED, (p) => {
 
     state.currentRoom = { id: p.room.id, name: p.room.name };
     state.roomUsers   = [...p.users];
+    const localUser   = { id: state.userId, username: state.username };
 
     // Sync the server-authoritative user count into our local room list.
     const joinedEntry = state.rooms.find(r => r.id === p.room.id);
     if (joinedEntry) joinedEntry.user_count = p.room.user_count;
 
     UI.showRoom(p.room.name);
-    UI.updateUserList(p.users);
+    UI.updateUserList([localUser, ...p.users]);
     UI.updateRoomList(state.rooms, p.room.id, _joinRoom);
 
     // Replay message history so rejoining users see past messages.
