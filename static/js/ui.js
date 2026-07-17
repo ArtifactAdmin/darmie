@@ -47,7 +47,7 @@ export const UI = {
         list.innerHTML = '';
         for (const room of rooms) {
             const li = document.createElement('li');
-            li.className = 'room-item' + (room.id === currentRoomId ? ' active' : '');
+            li.className = 'room-item';
 
             const nameSpan = document.createElement('span');
             nameSpan.className = 'room-item-name';

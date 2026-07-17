@@ -281,7 +281,7 @@ input  { font: inherit; color: inherit; }
 }
 
 .room-item:hover { background: var(--bg2); color: var(--txt0); }
-.room-item.active { background: var(--bg2); color: var(--txt0); font-weight: 600; }
+
 
 .room-item-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
 .room-item-count {
