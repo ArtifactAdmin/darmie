@@ -68,6 +68,9 @@ func (h *Hub) handleJoinRoom(c *Client, raw json.RawMessage) {
 	for _, ec := range existing {
 		ec.trySend(userJoined)
 	}
+
+	// Notify all other clients so their sidebar counts stay current.
+	h.broadcastRoomList(c.userID)
 }
 
 func (h *Hub) handleLeaveRoom(c *Client, raw json.RawMessage) {
@@ -82,6 +85,8 @@ func (h *Hub) handleLeaveRoom(c *Client, raw json.RawMessage) {
 	}
 	if h.doLeaveRoom(c, r) {
 		c.sendMsg(mustMsg(protocol.TypeRoomLeft, map[string]string{"room_id": p.RoomID}))
+		// Notify all other clients so their sidebar counts stay current.
+		h.broadcastRoomList(c.userID)
 	}
 }
 

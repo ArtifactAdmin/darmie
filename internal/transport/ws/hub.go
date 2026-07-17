@@ -137,6 +137,10 @@ func (h *Hub) handleDisconnect(c *Client) {
 		h.doLeaveRoom(c, r)
 	}
 
+	// Notify remaining clients so their sidebar counts reflect the departure.
+	// RemoveClient already ran, so c is excluded from AuthedClientsExcept.
+	h.broadcastRoomList(c.userID)
+
 	log.Printf("client disconnected: %s (%s)", c.username, c.userID)
 }
 
