@@ -110,8 +110,6 @@ ws.on(MSG.ROOM_JOINED, (payload) => {
     state.currentRoom = { id: payload.room.id, name: payload.room.name };
     state.roomUsers = [...payload.users];
     const localUser = { id: state.userId, username: state.username };
-    _setRoomUserCount(payload.room.id, payload.room.user_count);
-
     UI.showRoom(payload.room.name);
     UI.updateUserList([localUser, ...payload.users]);
     _renderRooms();
@@ -132,14 +130,12 @@ ws.on(MSG.USER_JOINED, (payload) => {
     UI.addUser(user);
     UI.toast(`${user.username} joined`, 'info');
     webrtc.initiatePeer(user.id);
-    _changeRoomUserCount(payload.room_id, 1);
 });
 
 ws.on(MSG.USER_LEFT, (payload) => {
     state.roomUsers = state.roomUsers.filter((user) => user.id !== payload.user_id);
     UI.removeUser(payload.user_id);
     webrtc.closePeer(payload.user_id);
-    _changeRoomUserCount(payload.room_id, -1);
 });
 
 ws.on(MSG.TEXT_MESSAGE, (payload) => {
@@ -191,19 +187,7 @@ function _resetRoom() {
 }
 
 function _renderRooms() {
-    UI.updateRoomList(state.rooms, state.currentRoom?.id, _joinRoom);
-}
-
-function _setRoomUserCount(roomId, userCount) {
-    const room = state.rooms.find((entry) => entry.id === roomId);
-    if (room) room.user_count = userCount;
-}
-
-function _changeRoomUserCount(roomId, change) {
-    const room = state.rooms.find((entry) => entry.id === roomId);
-    if (!room) return;
-    room.user_count = Math.max(0, room.user_count + change);
-    _renderRooms();
+    UI.updateRoomList(state.rooms, _joinRoom);
 }
 
 function _renderHistory(history = []) {

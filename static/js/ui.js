@@ -42,7 +42,7 @@ export const UI = {
     // Sidebar room list
     // 
 
-    updateRoomList(rooms, currentRoomId, onJoin) {
+    updateRoomList(rooms, onJoin) {
         const list = document.getElementById('room-list');
         list.innerHTML = '';
         for (const room of rooms) {
@@ -53,11 +53,7 @@ export const UI = {
             nameSpan.className = 'room-item-name';
             nameSpan.textContent = '# ' + room.name;
 
-            const badge = document.createElement('span');
-            badge.className = 'room-item-count';
-            badge.textContent = room.user_count;
-
-            li.append(nameSpan, badge);
+            li.append(nameSpan);
             li.addEventListener('click', () => onJoin(room.id));
             list.appendChild(li);
         }

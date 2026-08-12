@@ -284,16 +284,6 @@ input  { font: inherit; color: inherit; }
 
 
 .room-item-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
-.room-item-count {
-    font-size: 11px;
-    background: var(--bg3);
-    color: var(--txt1);
-    border-radius: 10px;
-    padding: 1px 7px;
-    margin-left: 6px;
-    flex-shrink: 0;
-}
-
 .sidebar-footer {
     display: flex;
     align-items: center;
