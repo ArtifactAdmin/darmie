@@ -60,8 +60,8 @@ export class WebRTCManager {
         this.onRemoteStream        = null;
         /** @type {((userId: string) => void) | null} */
         this.onRemoteStreamRemoved = null;
-        /** @type {((channel: RTCDataChannel, userId: string) => void) | null} */
-        this.onDataChannel         = null;
+        /** @type {Set<(channel: RTCDataChannel, userId: string) => void>} */
+        this._dataChannelHandlers = new Set();
         /** @type {((userId: string, state: string) => void) | null} */
         this.onConnectionState     = null;
     }
@@ -104,6 +104,21 @@ export class WebRTCManager {
         this._micTrack = null;
         this._stopStreamTracks(this._screenStream);
         this._screenStream = null;
+    }
+
+    /**
+     * Subscribe to incoming DataChannels. Returns an unsubscribe function so
+     * independent features can share this extension point.
+     */
+    addDataChannelHandler(handler) {
+        this._dataChannelHandlers.add(handler);
+        return () => this._dataChannelHandlers.delete(handler);
+    }
+
+    /** Create a DataChannel for a connected peer without exposing its PC. */
+    createDataChannel(userId, label, options) {
+        const peer = this._peers[userId];
+        return peer ? peer.pc.createDataChannel(label, options) : null;
     }
 
     // 
@@ -352,7 +367,7 @@ export class WebRTCManager {
         };
 
         pc.ondatachannel = ({ channel }) => {
-            if (this.onDataChannel) this.onDataChannel(channel, userId);
+            for (const handler of this._dataChannelHandlers) handler(channel, userId);
         };
 
         pc.onnegotiationneeded = async () => {

@@ -25,13 +25,13 @@ export class FileTransfer {
         /** Fired with progress updates while sending. */
         this.onProgress = null;     // (toUserId, fraction: 0–1) => void
 
-        // Wire up incoming data channel handler
-        webrtc.onDataChannel = (channel, fromUserId) => {
+        // File transfer is one of several potential DataChannel consumers.
+        webrtc.addDataChannelHandler((channel, fromUserId) => {
             if (channel.label.startsWith(FILE_CHANNEL_PREFIX)) {
                 this._receiveFile(channel, fromUserId);
             }
             // Non-file channels (e.g. "control") are intentionally ignored here.
-        };
+        });
     }
 
     /**
@@ -40,14 +40,12 @@ export class FileTransfer {
      * @param {File}    file
      */
     sendFile(userId, file) {
-        const peer = this._webrtc._peers[userId];
-        if (!peer) {
+        const label = FILE_CHANNEL_PREFIX + crypto.randomUUID();
+        const channel = this._webrtc.createDataChannel(userId, label, { ordered: true });
+        if (!channel) {
             console.warn('FileTransfer: no peer connection to', userId);
             return;
         }
-
-        const label   = FILE_CHANNEL_PREFIX + crypto.randomUUID();
-        const channel = peer.pc.createDataChannel(label, { ordered: true });
 
         channel.binaryType = 'arraybuffer';
         channel.onopen  = () => this._sendFile(channel, file, userId);
